@@ -4,9 +4,14 @@ import pandas as pd
 import os
 import numpy as np
 from albumentations import (HorizontalFlip, ShiftScaleRotate, Normalize, Resize, Compose, GaussNoise)
+from albumentations.pytorch.transforms import ToTensorV2
 import json
 from ast import literal_eval
+import random
+from matplotlib import pyplot as plt
 
+from skimage.morphology import remove_small_holes
+import albumentations as albu
 
 def to_categorical(y, num_classes):
     """ 1-hot encodes a tensor """
@@ -121,6 +126,125 @@ def load_image_map_from_file(path):
     return color_map
 
 
+def pre_transforms(image_size=224):
+    return [albu.Resize(image_size, image_size, p=1)]
+
+
+def hard_transforms():
+    result = [
+        albu.RandomRotate90(),
+        albu.CoarseDropout(),
+        albu.RandomBrightnessContrast(
+            brightness_limit=0.2, contrast_limit=0.2, p=0.3
+        ),
+        albu.GridDistortion(p=0.3),
+        albu.HueSaturationValue(p=0.3)
+    ]
+
+    return result
+
+
+def resize_transforms(image_size=224):
+    BORDER_CONSTANT = 0
+    pre_size = int(image_size * 1.5)
+
+    random_crop = albu.Compose([
+        albu.SmallestMaxSize(pre_size, p=1),
+        albu.RandomCrop(
+            image_size, image_size, p=1
+        )
+
+    ])
+
+    rescale = albu.Compose([albu.Resize(image_size, image_size, p=1)])
+
+    random_crop_big = albu.Compose([
+        albu.LongestMaxSize(pre_size, p=1),
+        albu.RandomCrop(
+            image_size, image_size, p=1
+        )
+
+    ])
+
+    # Converts the image to a square of size image_size x image_size
+    result = [
+        albu.OneOf([
+            random_crop,
+            rescale,
+            random_crop_big
+        ], p=1)
+    ]
+
+    return result
+
+
+def post_transforms():
+    # we use ImageNet image normalization
+    # and convert it to torch.Tensor
+    return [albu.Normalize(), ToTensorV2()]
+
+
+def compose(transforms_to_compose):
+    # combine all augmentations into one single pipeline
+    result = albu.Compose([
+        item for sublist in transforms_to_compose for item in sublist
+    ])
+    return result
+
+
+def show_examples(name: str, image: np.ndarray, binary: np.ndarray, mask: np.ndarray):
+    foreground = np.stack([(binary)] * 3, axis=-1)
+    inv_binary = 1 - binary
+    inv_binary = np.stack([inv_binary] * 3, axis=-1)
+    overlay_mask = mask.copy()
+    overlay_mask[foreground == 0] = 0
+    inverted_overlay_mask = mask.copy()
+    inverted_overlay_mask[inv_binary == 0] = 0
+
+    plt.figure(figsize=(10, 14))
+    plt.subplot(1, 3, 1)
+    plt.imshow(image)
+    plt.title(f"Image: {name}")
+
+    plt.subplot(1, 3, 2)
+    plt.imshow(mask)
+    plt.title(f"Mask: {name}")
+
+    plt.subplot(1, 3, 3)
+    plt.imshow(inverted_overlay_mask)
+    plt.title(f"Binary: {name}")
+
+
+
+def show(index: int, image, mask, transforms=None) -> None:
+
+    image = Image.open(image)
+    binary = image.convert('1')
+    image = np.asarray(image)
+
+    binary = np.asarray(binary)
+    binary = remove_small_holes(binary, 3, True)
+    mask = np.array(Image.open(mask))
+    print(mask.shape)
+    if transforms is not None:
+        temp = transforms(image=image, mask=mask)
+
+    show_examples(index, image, binary, mask)
+
+
+def show_random(df, transforms=None) -> None:
+    length = len(df)
+    print(length)
+    index = random.randint(0, length - 1)
+    print(index)
+    image = df.get('images')[index]
+    mask = df.get('masks')[index]
+    print(image)
+    print(mask)
+    show(index, image, mask, transforms)
+    plt.show()
+
+
 if __name__ == '__main__':
     a = dirs_to_pandaframe('/mnt/sshfs/hartelt/datasets/all/images/', '/mnt/sshfs/hartelt/datasets/all/masks/')
     print(a.get('masks'))
@@ -128,6 +252,11 @@ if __name__ == '__main__':
     map = load_image_map_from_file('/mnt/sshfs/hartelt/datasets/all/image_map.json')
     dt = MaskDataset(a, map, 'train')
     i, m = dt.__getitem__(77)
+    while True:
+       show_random(a)
+
     print(i)
     print(m)
+    print(a.get('masks')[2595])
     pass
+
