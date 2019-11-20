@@ -9,7 +9,7 @@ import json
 from ast import literal_eval
 import random
 from matplotlib import pyplot as plt
-
+from typing import List
 from skimage.morphology import remove_small_holes
 import albumentations as albu
 
@@ -92,8 +92,12 @@ def listdir(dir, postfix="", not_postfix=False):
         return [os.path.join(dir, f) for f in sorted(os.listdir(dir)) if f.endswith(postfix)]
 
 
-def dirs_to_pandaframe(images_dir, masks_dir, verify_filenames: bool = True):
-    img, m = listdir(images_dir), listdir(masks_dir)
+def dirs_to_pandaframe(images_dir: List[str], masks_dir: List[str], verify_filenames: bool = True):
+    img = []
+    m = []
+    for img_d, mask_d in zip(images_dir, masks_dir):
+        img += listdir(img_d)
+        m += listdir(mask_d)
     if verify_filenames:
         def filenames(fn, postfix=None):
             if postfix and len(postfix) > 0:
@@ -250,7 +254,7 @@ def show_random(df, transforms=None) -> None:
 
 if __name__ == '__main__':
     'https://github.com/catalyst-team/catalyst/blob/master/examples/notebooks/segmentation-tutorial.ipynb'
-    a = dirs_to_pandaframe('/mnt/sshfs/hartelt/datasets/all/images/', '/mnt/sshfs/hartelt/datasets/all/masks/')
+    a = dirs_to_pandaframe(['/mnt/sshfs/hartelt/datasets/all/images/', '/mnt/sshfs/hartelt/datasets/ICDAR2019cbad/nrm/'], ['/mnt/sshfs/hartelt/datasets/all/masks/', '/mnt/sshfs/hartelt/datasets/ICDAR2019cbad/masksimagenonimage/'])
     map = load_image_map_from_file('/mnt/sshfs/hartelt/datasets/all/image_map.json')
     dt = MaskDataset(a, map, 'train')
     i, m = dt.__getitem__(77)
