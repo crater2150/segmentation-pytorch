@@ -132,24 +132,23 @@ def pre_transforms(image_size=224):
 
 def hard_transforms():
     result = [
-        albu.RandomRotate90(),
+        #albu.RandomRotate90(),
         albu.CoarseDropout(),
         albu.RandomBrightnessContrast(
             brightness_limit=0.2, contrast_limit=0.2, p=0.3
         ),
-        albu.GridDistortion(p=0.3),
-        albu.HueSaturationValue(p=0.3)
+        albu.GridDistortion(p=0.3, border_mode=0, value=255, mask_value=[255,255,255]),
     ]
 
     return result
 
 
-def resize_transforms(image_size=224):
+def resize_transforms(image_size=1280):
     BORDER_CONSTANT = 0
     pre_size = int(image_size * 1.5)
 
     random_crop = albu.Compose([
-        albu.SmallestMaxSize(pre_size, p=1),
+        albu.SmallestMaxSize(image_size, p=1),
         albu.RandomCrop(
             image_size, image_size, p=1
         )
@@ -159,7 +158,7 @@ def resize_transforms(image_size=224):
     rescale = albu.Compose([albu.Resize(image_size, image_size, p=1)])
 
     random_crop_big = albu.Compose([
-        albu.LongestMaxSize(pre_size, p=1),
+        albu.LongestMaxSize(pre_size * 2, p=1),
         albu.RandomCrop(
             image_size, image_size, p=1
         )
@@ -171,7 +170,7 @@ def resize_transforms(image_size=224):
         albu.OneOf([
             random_crop,
             rescale,
-            random_crop_big
+            #random_crop_big
         ], p=1)
     ]
 
@@ -186,6 +185,7 @@ def post_transforms():
 
 def compose(transforms_to_compose):
     # combine all augmentations into one single pipeline
+    # convenient if ypu want to add extra targets, e.g. binary input
     result = albu.Compose([
         item for sublist in transforms_to_compose for item in sublist
     ])
@@ -219,24 +219,27 @@ def show_examples(name: str, image: np.ndarray, binary: np.ndarray, mask: np.nda
 def show(index: int, image, mask, transforms=None) -> None:
 
     image = Image.open(image)
-    binary = image.convert('1')
     image = np.asarray(image)
+    print(image.shape)
 
-    binary = np.asarray(binary)
-    binary = remove_small_holes(binary, 3, True)
     mask = np.array(Image.open(mask))
+
     print(mask.shape)
     if transforms is not None:
         temp = transforms(image=image, mask=mask)
-
+        image = temp['image']
+        mask = temp['mask']
+    bin_og = Image.fromarray(image)
+    bin_og = bin_og.convert('1')
+    binary = np.array(bin_og)
+    binary = np.asarray(binary)
+    binary = remove_small_holes(binary, 3, True)
     show_examples(index, image, binary, mask)
 
 
 def show_random(df, transforms=None) -> None:
     length = len(df)
-    print(length)
     index = random.randint(0, length - 1)
-    print(index)
     image = df.get('images')[index]
     mask = df.get('masks')[index]
     print(image)
@@ -246,17 +249,21 @@ def show_random(df, transforms=None) -> None:
 
 
 if __name__ == '__main__':
+    'https://github.com/catalyst-team/catalyst/blob/master/examples/notebooks/segmentation-tutorial.ipynb'
     a = dirs_to_pandaframe('/mnt/sshfs/hartelt/datasets/all/images/', '/mnt/sshfs/hartelt/datasets/all/masks/')
-    print(a.get('masks'))
-    print(a.index.tolist())
     map = load_image_map_from_file('/mnt/sshfs/hartelt/datasets/all/image_map.json')
     dt = MaskDataset(a, map, 'train')
     i, m = dt.__getitem__(77)
-    while True:
-       show_random(a)
+    train_transforms = compose([
+    resize_transforms(),
+    hard_transforms(),
+    post_transforms()
+    ])
+    valid_transforms = compose([pre_transforms(), post_transforms()])
 
-    print(i)
-    print(m)
-    print(a.get('masks')[2595])
+    show_transforms = compose([resize_transforms(), hard_transforms()])
+    while True:
+       show_random(a, transforms=show_transforms)
+
     pass
 
