@@ -4,7 +4,7 @@ import pandas as pd
 import os
 import numpy as np
 from albumentations import (HorizontalFlip, ShiftScaleRotate, Normalize, Resize, Compose, GaussNoise)
-from albumentations.pytorch.transforms import ToTensorV2
+from albumentations.pytorch.transforms import ToTensorV2, ToTensor
 import json
 from ast import literal_eval
 import random
@@ -12,10 +12,14 @@ from matplotlib import pyplot as plt
 from typing import List
 from skimage.morphology import remove_small_holes
 import albumentations as albu
+import torch
 
-def to_categorical(y, num_classes):
+def to_categorical(y, num_classes, torch=True):
     """ 1-hot encodes a tensor """
-    return np.eye(num_classes, dtype='uint8')[y]
+    one_hot = np.eye(num_classes, dtype='uint8')[y]
+    if torch:
+        one_hot = np.transpose(one_hot, (2, 0, 1))
+    return one_hot
 
 
 def color_to_label(mask, colormap: dict):
@@ -44,43 +48,42 @@ def label_to_colors(mask, colormap: dict):
 
 
 class MaskDataset(Dataset):
-    def __init__(self, df, color_map, phase):
+    def __init__(self, df, color_map, transform=None):
         self.df = df
         self.color_map = color_map
-        self.augmentation = get_transforms(phase)
+        self.augmentation = transform
         self.index = self.df.index.tolist()
 
     def __getitem__(self, item):
+        #print(self.df)
         image_id, mask_id = self.df.get('images')[item], self.df.get('masks')[item]
-        image = np.asarray(Image.open(image_id))
-        mask = np.asarray(Image.open(mask_id))
 
+        image = np.asarray(Image.open(image_id))
+        image = np.stack([image] *3, axis=-1)
+        result = {"image": image}
+        mask = np.asarray(Image.open(mask_id))
         if mask.ndim == 3:
-            mask = color_to_label(mask, self.color_map)
+            result["mask"] = color_to_label(mask, self.color_map)   
         elif mask.ndim == 2:
             u_values = np.unique(mask)
+            mask = result["mask"]
             for ind, x in enumerate(u_values):
                 mask[mask == x] = ind
-        return image, to_categorical(mask, len(self.color_map))
+            result["mask"] = mask
+
+        if self.augmentation is not None:
+            result = self.augmentation(**result)
+
+        #result["mask"] = torch.from_numpy(to_categorical(result["mask"], len(self.color_map)))
+
+        #print(result["mask"].shape)
+        #print(result["image"].shape)
+        result["mask"] = result["mask"].long()
+        print(result["mask"])
+        return result
 
     def __len__(self):
         return len(self.index)
-
-
-def get_transforms(phase):
-    list_transforms = []
-    if phase == "train":
-        list_transforms.extend(
-            [
-                HorizontalFlip(p=0.5), # only horizontal flip as of now
-            ]
-        )
-    list_transforms.extend(
-        [
-        ]
-    )
-    list_trfms = Compose(list_transforms)
-    return list_trfms
 
 
 def listdir(dir, postfix="", not_postfix=False):
@@ -147,7 +150,7 @@ def hard_transforms():
     return result
 
 
-def resize_transforms(image_size=1280):
+def resize_transforms(image_size=480):
     BORDER_CONSTANT = 0
     pre_size = int(image_size * 1.5)
 
@@ -173,7 +176,7 @@ def resize_transforms(image_size=1280):
     result = [
         albu.OneOf([
             random_crop,
-            rescale,
+            #rescale,
             #random_crop_big
         ], p=1)
     ]
@@ -219,16 +222,12 @@ def show_examples(name: str, image: np.ndarray, binary: np.ndarray, mask: np.nda
     plt.title(f"Binary: {name}")
 
 
-
 def show(index: int, image, mask, transforms=None) -> None:
 
     image = Image.open(image)
     image = np.asarray(image)
-    print(image.shape)
-
     mask = np.array(Image.open(mask))
 
-    print(mask.shape)
     if transforms is not None:
         temp = transforms(image=image, mask=mask)
         image = temp['image']
@@ -257,7 +256,7 @@ if __name__ == '__main__':
     a = dirs_to_pandaframe(['/mnt/sshfs/hartelt/datasets/all/images/', '/mnt/sshfs/hartelt/datasets/ICDAR2019cbad/nrm/'], ['/mnt/sshfs/hartelt/datasets/all/masks/', '/mnt/sshfs/hartelt/datasets/ICDAR2019cbad/masksimagenonimage/'])
     map = load_image_map_from_file('/mnt/sshfs/hartelt/datasets/all/image_map.json')
     dt = MaskDataset(a, map, 'train')
-    i, m = dt.__getitem__(77)
+    #i, m = dt.__getitem__(77)
     train_transforms = compose([
     resize_transforms(),
     hard_transforms(),
