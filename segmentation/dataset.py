@@ -14,6 +14,7 @@ from skimage.morphology import remove_small_holes
 import albumentations as albu
 import torch
 
+
 def to_categorical(y, num_classes, torch=True):
     """ 1-hot encodes a tensor """
     one_hot = np.eye(num_classes, dtype='uint8')[y]
@@ -55,15 +56,15 @@ class MaskDataset(Dataset):
         self.index = self.df.index.tolist()
 
     def __getitem__(self, item):
-        #print(self.df)
+        # print(self.df)
         image_id, mask_id = self.df.get('images')[item], self.df.get('masks')[item]
 
         image = np.asarray(Image.open(image_id))
-        image = np.stack([image] *3, axis=-1)
+        image = np.stack([image] * 3, axis=-1)
         result = {"image": image}
         mask = np.asarray(Image.open(mask_id))
         if mask.ndim == 3:
-            result["mask"] = color_to_label(mask, self.color_map)   
+            result["mask"] = color_to_label(mask, self.color_map)
         elif mask.ndim == 2:
             u_values = np.unique(mask)
             mask = result["mask"]
@@ -74,12 +75,11 @@ class MaskDataset(Dataset):
         if self.augmentation is not None:
             result = self.augmentation(**result)
 
-        #result["mask"] = torch.from_numpy(to_categorical(result["mask"], len(self.color_map)))
+        # result["mask"] = torch.from_numpy(to_categorical(result["mask"], len(self.color_map)))
 
-        #print(result["mask"].shape)
-        #print(result["image"].shape)
+        # print(result["mask"].shape)
+        # print(result["image"].shape)
         result["mask"] = result["mask"].long()
-        print(result["mask"])
         return result
 
     def __len__(self):
@@ -108,6 +108,7 @@ def dirs_to_pandaframe(images_dir: List[str], masks_dir: List[str], verify_filen
 
             x = {os.path.basename(f).split('.')[0]: f for f in fn}
             return x
+
         img_dir = filenames(img)
         mask_dir = filenames(m)
         base_names = set(img_dir.keys()).intersection(set(mask_dir.keys()))
@@ -139,12 +140,12 @@ def pre_transforms(image_size=224):
 
 def hard_transforms():
     result = [
-        #albu.RandomRotate90(),
+        # albu.RandomRotate90(),
         albu.CoarseDropout(),
         albu.RandomBrightnessContrast(
             brightness_limit=0.2, contrast_limit=0.2, p=0.3
         ),
-        albu.GridDistortion(p=0.3, border_mode=0, value=255, mask_value=[255,255,255]),
+        albu.GridDistortion(p=0.3, border_mode=0, value=255, mask_value=[255, 255, 255]),
     ]
 
     return result
@@ -176,8 +177,8 @@ def resize_transforms(image_size=480):
     result = [
         albu.OneOf([
             random_crop,
-            #rescale,
-            #random_crop_big
+            # rescale,
+            # random_crop_big
         ], p=1)
     ]
 
@@ -223,7 +224,6 @@ def show_examples(name: str, image: np.ndarray, binary: np.ndarray, mask: np.nda
 
 
 def show(index: int, image, mask, transforms=None) -> None:
-
     image = Image.open(image)
     image = np.asarray(image)
     mask = np.array(Image.open(mask))
@@ -253,20 +253,60 @@ def show_random(df, transforms=None) -> None:
 
 if __name__ == '__main__':
     'https://github.com/catalyst-team/catalyst/blob/master/examples/notebooks/segmentation-tutorial.ipynb'
-    a = dirs_to_pandaframe(['/mnt/sshfs/hartelt/datasets/all/images/', '/mnt/sshfs/hartelt/datasets/ICDAR2019cbad/nrm/'], ['/mnt/sshfs/hartelt/datasets/all/masks/', '/mnt/sshfs/hartelt/datasets/ICDAR2019cbad/masksimagenonimage/'])
+    a = dirs_to_pandaframe(
+        ['/mnt/sshfs/hartelt/datasets/all/images/', '/mnt/sshfs/hartelt/datasets/ICDAR2019cbad/nrm/'],
+        ['/mnt/sshfs/hartelt/datasets/all/masks/', '/mnt/sshfs/hartelt/datasets/ICDAR2019cbad/masksimagenonimage/'])
     map = load_image_map_from_file('/mnt/sshfs/hartelt/datasets/all/image_map.json')
-    dt = MaskDataset(a, map, 'train')
-    #i, m = dt.__getitem__(77)
+    dt = MaskDataset(a, map, transform=compose([resize_transforms(image_size=512), post_transforms()]))
+    # i, m = dt.__getitem__(77)
     train_transforms = compose([
-    resize_transforms(),
-    hard_transforms(),
-    post_transforms()
+        resize_transforms(),
+        hard_transforms(),
+        post_transforms()
     ])
     valid_transforms = compose([pre_transforms(), post_transforms()])
 
     show_transforms = compose([resize_transforms(), hard_transforms()])
-    while True:
-       show_random(a, transforms=show_transforms)
+    # while True:
+    #   show_random(a, transforms=show_transforms)
 
     pass
+    import torch
+    import torch.nn as nn
+    import torch.optim as optim
+    import torch.nn.functional as F
+    from segmentation.model import UNet
 
+    model = UNet(in_channels=3,
+                 out_channels=64,
+                 n_class=len(map),
+                 kernel_size=3,
+                 padding=1,
+                 stride=1)
+
+    if torch.cuda.is_available():
+        model = model.to('cuda')
+
+    criterion = nn.NLLLoss()
+
+    optimizer = optim.Adam(model.parameters(), lr=1e-3)
+    data = dt.__getitem__(5)
+    x = data['image']
+    y = data['mask']
+
+    from torch.utils import data
+
+    train_loader = data.DataLoader(dataset=dt, batch_size=2, shuffle=True)
+    # Training loop
+    for epoch in range(1):
+        for step, datas in enumerate(train_loader):
+            x = datas['image']
+            y = datas['mask']
+            optimizer.zero_grad()
+
+            output = model(x)
+            loss = criterion(output, y)
+            loss.backward()
+            optimizer.step()
+
+            print('Epoch {}, Loss {}'.format(epoch, loss.item()))
