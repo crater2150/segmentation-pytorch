@@ -60,9 +60,15 @@ class MaskDataset(Dataset):
         image_id, mask_id = self.df.get('images')[item], self.df.get('masks')[item]
 
         image = np.asarray(Image.open(image_id))
-        image = np.stack([image] * 3, axis=-1)
-        result = {"image": image}
         mask = np.asarray(Image.open(mask_id))
+        mask_shape = mask.shape
+        h_dif = 32 - mask_shape[0] % 32
+        x_dif = 32 - mask_shape[1] % 32
+
+        mask = np.pad(array=mask, pad_width=((h_dif,0), (x_dif,0), (0,0)), constant_values=255)
+        image = np.pad(array=image, pad_width=((h_dif,0), (x_dif,0), (0,0)), constant_values=255)
+        #image = np.stack([image] * 3, axis=-1)
+        result = {"image": image}
         if mask.ndim == 3:
             result["mask"] = color_to_label(mask, self.color_map)
         elif mask.ndim == 2:
@@ -79,7 +85,10 @@ class MaskDataset(Dataset):
 
         # print(result["mask"].shape)
         # print(result["image"].shape)
-        result["mask"] = result["mask"].long()
+        result["mask"] = result["mask"]
+
+
+
         return result
 
     def __len__(self):
@@ -254,10 +263,10 @@ def show_random(df, transforms=None) -> None:
 if __name__ == '__main__':
     'https://github.com/catalyst-team/catalyst/blob/master/examples/notebooks/segmentation-tutorial.ipynb'
     a = dirs_to_pandaframe(
-        ['/mnt/sshfs/hartelt/datasets/all/images/', '/mnt/sshfs/hartelt/datasets/ICDAR2019cbad/nrm/'],
-        ['/mnt/sshfs/hartelt/datasets/all/masks/', '/mnt/sshfs/hartelt/datasets/ICDAR2019cbad/masksimagenonimage/'])
-    map = load_image_map_from_file('/mnt/sshfs/hartelt/datasets/all/image_map.json')
-    dt = MaskDataset(a, map, transform=compose([resize_transforms(image_size=512), post_transforms()]))
+        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/test/images/','/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/train/images/'],
+        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/test/masks/','/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/train/masks/'])
+    map = load_image_map_from_file('/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/image_map.json')
+    dt = MaskDataset(a, map, transform=compose([post_transforms()]))
     # i, m = dt.__getitem__(77)
     train_transforms = compose([
         resize_transforms(),
@@ -283,9 +292,9 @@ if __name__ == '__main__':
                  kernel_size=3,
                  padding=1,
                  stride=1)
-
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     if torch.cuda.is_available():
-        model = model.to('cuda')
+        model = model.to(device)
 
     criterion = nn.NLLLoss()
 
@@ -296,12 +305,12 @@ if __name__ == '__main__':
 
     from torch.utils import data
 
-    train_loader = data.DataLoader(dataset=dt, batch_size=2, shuffle=True)
+    train_loader = data.DataLoader(dataset=dt, batch_size=1, shuffle=True)
     # Training loop
     for epoch in range(1):
         for step, datas in enumerate(train_loader):
-            x = datas['image']
-            y = datas['mask']
+            x = datas['image'].to(device)
+            y = datas['mask'].to(device, dtype=torch.int64)
             optimizer.zero_grad()
 
             output = model(x)
