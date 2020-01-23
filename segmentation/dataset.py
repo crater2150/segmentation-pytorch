@@ -11,6 +11,7 @@ import random
 from matplotlib import pyplot as plt
 from typing import List
 from skimage.morphology import remove_small_holes
+from skimage.transform import rescale, resize
 import albumentations as albu
 import torch
 
@@ -48,6 +49,9 @@ def label_to_colors(mask, colormap: dict):
     return out
 
 
+def rescale_pil(image, scale, order=1):
+    return image.resize((int(image.size[0] * scale), int(image.size[1] * scale)), order)
+
 class MaskDataset(Dataset):
     def __init__(self, df, color_map, transform=None):
         self.df = df
@@ -59,15 +63,29 @@ class MaskDataset(Dataset):
         # print(self.df)
         image_id, mask_id = self.df.get('images')[item], self.df.get('masks')[item]
 
-        image = np.asarray(Image.open(image_id))
-        mask = np.asarray(Image.open(mask_id))
+        image = Image.open(image_id)
+        mask = Image.open(mask_id)
+        rescale_factor = 0.25 if image.size[1] > 3000 else 0.33 if image.size[1] > 2000 else 0.5\
+            if image.size[1] > 1000 else 1
+        #mask = rescale()
+        mask = np.array(rescale_pil(mask, rescale_factor, 0))
+        image = np.array(rescale_pil(image, rescale_factor, 1))
+        #image = np.stack([image] * 3, axis=-1)
+        print(image.dtype)
+        #mask = rescale(mask, scale=rescale_factor, order=0, preserve_range=True, multichannel=True)
+        #image = rescale(image, scale=rescale_factor, order=1, preserve_range=True, multichannel=True)
+        print(image.dtype)
         mask_shape = mask.shape
         h_dif = 32 - mask_shape[0] % 32
         x_dif = 32 - mask_shape[1] % 32
 
         mask = np.pad(array=mask, pad_width=((h_dif,0), (x_dif,0), (0,0)), constant_values=255)
         image = np.pad(array=image, pad_width=((h_dif,0), (x_dif,0), (0,0)), constant_values=255)
-        #image = np.stack([image] * 3, axis=-1)
+
+        #f, ax = plt.subplots(1, 2, True, True)
+        #ax[0].imshow(image)
+        #ax[1].imshow(mask)
+        #plt.show()
         result = {"image": image}
         if mask.ndim == 3:
             result["mask"] = color_to_label(mask, self.color_map)
@@ -299,16 +317,19 @@ if __name__ == '__main__':
     criterion = nn.NLLLoss()
 
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
-    data = dt.__getitem__(5)
-    x = data['image']
-    y = data['mask']
+    for i in range(1, 20):
+        data = dt.__getitem__(i)
+    #x = data['image']
+    #y = data['mask']
 
     from torch.utils import data
 
     train_loader = data.DataLoader(dataset=dt, batch_size=1, shuffle=True)
     # Training loop
-    for epoch in range(1):
+    for epoch in range(3):
         for step, datas in enumerate(train_loader):
+
+
             x = datas['image'].to(device)
             y = datas['mask'].to(device, dtype=torch.int64)
             optimizer.zero_grad()
