@@ -119,33 +119,34 @@ class UNet(nn.Module):
         return x_out
 
 
-# Create 10-class segmentation dummy image and target
-nb_classes = 10
-x = torch.randn(1, 3, 96, 96)
-y = torch.randint(0, nb_classes, (1, 96, 96))
+def test():
+    # Create 10-class segmentation dummy image and target
+    nb_classes = 10
+    x = torch.randn(1, 3, 512, 512)
+    y = torch.randint(0, nb_classes, (1, 512, 512))
 
-model = UNet(in_channels=3,
-             out_channels=64,
-             n_class=10,
-             kernel_size=3,
-             padding=1,
-             stride=1)
+    model = UNet(in_channels=3,
+                 out_channels=16,
+                 n_class=10,
+                 kernel_size=3,
+                 padding=1,
+                 stride=1)
 
-if torch.cuda.is_available():
-    model = model.to('cuda')
-    x = x.to('cuda')
-    y = y.to('cuda')
+    if torch.cuda.is_available():
+        model = model.to('cuda')
+        x = x.to('cuda')
+        y = y.to('cuda')
 
-criterion = nn.NLLLoss()
-optimizer = optim.Adam(model.parameters(), lr=1e-3)
+    criterion = nn.NLLLoss()
+    optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
-# Training loop
-for epoch in range(1):
-    optimizer.zero_grad()
+    # Training loop
+    for epoch in range(1000):
+        optimizer.zero_grad()
 
-    output = model(x)
-    loss = criterion(output, y)
-    loss.backward()
-    optimizer.step()
+        output = model(x)
+        loss = criterion(output, y)
+        loss.backward()
+        optimizer.step()
 
-    print('Epoch {}, Loss {}'.format(epoch, loss.item()))
+        print('Epoch {}, Loss {}'.format(epoch, loss.item()))
