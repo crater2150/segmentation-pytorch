@@ -10,12 +10,6 @@ from torch.utils.data import TensorDataset, DataLoader
 from tqdm import tqdm_notebook
 import seaborn as sns
 
-
-"""
-Simple UNet demo
-@author: ptrblck
-"""
-
 import torch
 import torch.nn as nn
 import torch.optim as optim

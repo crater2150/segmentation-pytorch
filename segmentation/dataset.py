@@ -15,7 +15,10 @@ from skimage.transform import rescale, resize
 import albumentations as albu
 import torch
 import gc
+
+
 # When training/testing/evaluationg on cpu set environment vairalbe LRU_CACHE_CAPACITY=1
+# Needed for dynamicaly sized inputs, else memory leak
 def to_categorical(y, num_classes, torch=True):
     """ 1-hot encodes a tensor """
     one_hot = np.eye(num_classes, dtype='uint8')[y]
@@ -61,19 +64,14 @@ class MaskDataset(Dataset):
         self.index = self.df.index.tolist()
 
     def __getitem__(self, item):
-        # print(self.df)
         image_id, mask_id = self.df.get('images')[item], self.df.get('masks')[item]
 
         image = Image.open(image_id)
         mask = Image.open(mask_id)
         rescale_factor = 0.25 if image.size[1] > 3000 else 0.33 if image.size[1] > 2000 else 0.5 \
             if image.size[1] > 1000 else 1
-        # mask = rescale()
         mask = np.array(rescale_pil(mask, rescale_factor, 0))
         image = np.array(rescale_pil(image, rescale_factor, 1))
-        # image = np.stack([image] * 3, axis=-1)
-        # mask = rescale(mask, scale=rescale_factor, order=0, preserve_range=True, multichannel=True)
-        # image = rescale(image, scale=rescale_factor, order=1, preserve_range=True, multichannel=True)
         mask_shape = mask.shape
         h_dif = 32 - mask_shape[0] % 32
         x_dif = 32 - mask_shape[1] % 32
@@ -81,10 +79,6 @@ class MaskDataset(Dataset):
         mask = np.pad(array=mask, pad_width=((h_dif, 0), (x_dif, 0), (0, 0)), constant_values=255)
         image = np.pad(array=image, pad_width=((h_dif, 0), (x_dif, 0), (0, 0)), constant_values=255)
 
-        # f, ax = plt.subplots(1, 2, True, True)
-        # ax[0].imshow(image)
-        # ax[1].imshow(mask)
-        # plt.show()
         result = {"image": image}
         if mask.ndim == 3:
             result["mask"] = color_to_label(mask, self.color_map)
@@ -102,11 +96,11 @@ class MaskDataset(Dataset):
 
         # print(result["mask"].shape)
         # print(result["image"].shape)
-        #result['image'] = result['image'] / 255
-        #result["mask"] = result["mask"]
-        #result['image'] = result['image'].transpose((2, 0, 1))
+        # result['image'] = result['image'] / 255
+        # result["mask"] = result["mask"]
+        # result['image'] = result['image'].transpose((2, 0, 1))
 
-        #im, mask = torch.from_numpy(result["image"]).float(), torch.from_numpy(result['mask'])
+        # im, mask = torch.from_numpy(result["image"]).float(), torch.from_numpy(result['mask'])
         return result["image"], result["mask"]
 
     def __len__(self):
@@ -278,18 +272,31 @@ def show_random(df, transforms=None) -> None:
     plt.show()
 
 
-def train(model, device, train_loader, optimizer, epoch):
+def train(model, device, train_loader, optimizer, epoch, accumulation_steps=8):
     model.train()
+    total_train = 0
+    correct_train = 0
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device, dtype=torch.int64)
         optimizer.zero_grad()
         output = model(data)
         loss = F.nll_loss(output, target)
+        loss = loss / accumulation_steps
         loss.backward()
         optimizer.step()
-        print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(epoch, batch_idx * len(data), len(train_loader.dataset),
-                       100. * batch_idx / len(train_loader), loss.item()))
-        track()
+        _, predicted = torch.max(output.data, 1)
+        total_train += target.nelement()
+        correct_train += predicted.eq(target.data).sum().item()
+        train_accuracy = 100 * correct_train / total_train
+        print('\r Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tAccuracy: {:.6f}'.format(epoch, batch_idx * len(data),
+                                                                                         len(train_loader.dataset),
+                                                                                         100. * batch_idx / len(
+                                                                                             train_loader), loss.item(),
+                                                                                         train_accuracy), end="", flush=True)
+        if (batch_idx + 1) % accumulation_steps == 0:  # Wait for several backward steps
+            optimizer.step()  # Now we can do an optimizer step
+            model.zero_grad()  # Reset gradients tensors
+        #track()
         gc.collect()
 
 
@@ -299,7 +306,7 @@ def test(model, device, test_loader):
     correct = 0
     with torch.no_grad():
         for data, target in test_loader:
-            data, target = data.to(device), target.to(device)
+            data, target = data.to(device), target.to(device, dtype=torch.int64)
             output = model(data)
             test_loss += F.nll_loss(output, target, reduction='sum').item()  # sum up batch loss
             pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
@@ -310,6 +317,7 @@ def test(model, device, test_loader):
     print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
         test_loss, correct, len(test_loader.dataset),
         100. * correct / len(test_loader.dataset)))
+
 
 def track():
     print((len(gc.get_objects())))
@@ -322,11 +330,12 @@ def track():
             pass
     '''
 
+
 if __name__ == '__main__':
     'https://github.com/catalyst-team/catalyst/blob/master/examples/notebooks/segmentation-tutorial.ipynb'
     a = dirs_to_pandaframe(
-         ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/train/images/'],
-         ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/train/masks/'])
+        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/train/images/'],
+        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/train/masks/'])
 
     b = dirs_to_pandaframe(
         ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/test/images/'],
@@ -336,19 +345,7 @@ if __name__ == '__main__':
         '/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/image_map.json')
     dt = MaskDataset(a, map, transform=compose([post_transforms()]))
     d_test = MaskDataset(b, map, transform=compose([post_transforms()]))
-    # i, m = dt.__getitem__(77)
-    #train_transforms = compose([
-    #    resize_transforms(),
-    #    hard_transforms(),
-    #    post_transforms()
-    #])
-    #valid_transforms = compose([pre_transforms(), post_transforms()])
 
-    #show_transforms = compose([resize_transforms(), hard_transforms()])
-    # while True:
-    #   show_random(a, transforms=show_transforms)
-
-    pass
     import torch
     import torch.nn as nn
     import torch.optim as optim
@@ -367,36 +364,15 @@ if __name__ == '__main__':
     criterion = nn.NLLLoss()
     model.float()
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
-    #for i in range(1, 20):
-    #    data = dt.__getitem__(i)
-    # x = data['image']
-    # y = data['mask']
 
     from torch.utils import data
 
     train_loader = data.DataLoader(dataset=dt, batch_size=1, shuffle=True, num_workers=5)
     test_loader = data.DataLoader(dataset=d_test, batch_size=1, shuffle=False)
-    # Training loop
-    #for x in range(100):
-    #    for step, datas in enumerate(train_loader):
-    #        print(step)
-    #        pass
-    #    pass
+
 
     for epoch in range(1, 3):
+        print('Training started ...')
         train(model, device, train_loader, optimizer, epoch)
         test(model, device, test_loader)
-    #for epoch in range(3):
-    #    for step, datas in enumerate(train_loader):
-    #        optimizer.zero_grad()
-    #        model.zero_grad()
-    #        x = datas['image'].to(device)
-    #        y = datas['mask'].to(device, dtype=torch.int64)
-    #        optimizer.zero_grad()
-    #
-    #       output = model(x)
-    #        loss = criterion(output, y)
-    #        loss.backward()
-    #        optimizer.step()
-    #
-    #        print('Epoch {}, Loss {}'.format(epoch, loss.item()))
+
