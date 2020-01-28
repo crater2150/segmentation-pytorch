@@ -65,7 +65,7 @@ class UpConv_woskip(nn.Module):
         super(UpConv_woskip, self).__init__()
 
         self.conv_trans = nn.ConvTranspose2d(
-            in_channels, out_channels, kernel_size=stride, padding=0, stride=stride)
+            in_channels, out_channels, kernel_size=stride, padding=0, stride=stride) #calculate padding ?
 
     def forward(self, x):
         x = self.conv_trans(x)
