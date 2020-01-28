@@ -1,5 +1,6 @@
 from segmentation.dataset import dirs_to_pandaframe, load_image_map_from_file, MaskDataset, compose, post_transforms
 from albumentations import (HorizontalFlip, ShiftScaleRotate, Normalize, Resize, Compose, GaussNoise)
+import gc
 
 
 def test(model, device, test_loader):
@@ -21,35 +22,37 @@ def test(model, device, test_loader):
         100. * correct / len(test_loader.dataset)))
 
 
-def train(model, device, train_loader, optimizer, epoch, accumulation_steps=8):
+def train(model, device, train_loader, optimizer, epoch, criterion, accumulation_steps=8):
     model.train()
     total_train = 0
     correct_train = 0
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device, dtype=torch.int64)
-        optimizer.zero_grad()
         output = model(data)
-        loss = F.nll_loss(output, target)
+        loss = criterion(output, target)
         loss = loss / accumulation_steps
         loss.backward()
-        optimizer.step()
         _, predicted = torch.max(output.data, 1)
         total_train += target.nelement()
         correct_train += predicted.eq(target.data).sum().item()
         train_accuracy = 100 * correct_train / total_train
-        print('\r Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tAccuracy: {:.6f}'.format(epoch, batch_idx * len(data),
-                                                                                         len(train_loader.dataset),
-                                                                                         100. * batch_idx / len(
-                                                                                             train_loader), loss.item(),
-                                                                                         train_accuracy), end="", flush=True)
+        print(
+            '\r Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tAccuracy: {:.6f}'.format(epoch, batch_idx * len(data),
+                                                                                          len(train_loader.dataset),
+                                                                                          100. * batch_idx / len(
+                                                                                              train_loader),
+                                                                                          loss.item(),
+                                                                                          train_accuracy), end="",
+            flush=True)
         if (batch_idx + 1) % accumulation_steps == 0:  # Wait for several backward steps
-            optimizer.step()  # Now we can do an optimizer step
+            for opt in optimizer:
+                opt.step()  # Now we can do an optimizer step
             model.zero_grad()  # Reset gradients tensors
+        gc.collect()
 
 
-def get_model(classes):
-    from segmentation.modules import Architecture
-    architecture = Architecture.UNET.get_architecture()('resnet34', classes=classes, activation='logsoftmax')
+def get_model(architecture, kwargs):
+    architecture = architecture.get_architecture()(**kwargs)
     return architecture
 
 
@@ -89,22 +92,41 @@ if __name__ == '__main__':
         padding=1,
         stride=1,
         attention=True)
+    from segmentation.modules import Architecture
 
-    model = get_model(len(map))
+    for x in Architecture:
+        print(x)
+        print(x.get_architecture_params())
+
+
+    #print(signature)
+    #print(signature.parameters)
+    #for name, parameter in signature.parameters.items():
+    #    print(name, parameter.default, parameter.annotation, parameter.kind)
+    x = Architecture.UNET
+    params = x.get_architecture_params()
+    params['classes'] = len(map)
+    model = get_model(x, params)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
 
-    criterion = nn.NLLLoss()
+    #criterion = nn.NLLLoss()
+    criterion = nn.CrossEntropyLoss()
     model.float()
-    optimizer = optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = optim.Adam(model.encoder.parameters(), lr=1e-3)
+    optimizer2 = optim.Adam(model.decoder.parameters(), lr=1e-3)
+    optimizer3 = optim.Adam(model.segmentation_head.parameters(), lr=1e-3)
+
+
 
     from torch.utils import data
 
     train_loader = data.DataLoader(dataset=dt, batch_size=1, shuffle=True, num_workers=5)
     test_loader = data.DataLoader(dataset=d_test, batch_size=1, shuffle=False)
 
-
     for epoch in range(1, 3):
         print('Training started ...')
-        train(model, device, train_loader, optimizer, epoch)
+        print(str(model))
+        print(str(params))
+        train(model, device, train_loader, [optimizer, optimizer2, optimizer3], epoch, criterion, accumulation_steps=8)
         test(model, device, test_loader)
