@@ -1,7 +1,7 @@
 from segmentation.dataset import dirs_to_pandaframe, load_image_map_from_file, MaskDataset, compose, post_transforms
 from albumentations import (HorizontalFlip, ShiftScaleRotate, Normalize, Resize, Compose, GaussNoise)
 import gc
-
+from collections.abc import Iterable
 
 def test(model, device, test_loader):
     model.eval()
@@ -45,8 +45,11 @@ def train(model, device, train_loader, optimizer, epoch, criterion, accumulation
                                                                                           train_accuracy), end="",
             flush=True)
         if (batch_idx + 1) % accumulation_steps == 0:  # Wait for several backward steps
-            for opt in optimizer:
-                opt.step()  # Now we can do an optimizer step
+            if isinstance(optimizer, Iterable):  # Now we can do an optimizer step
+                for opt in optimizer:
+                    opt.step()
+            else:
+                optimizer.step()
             model.zero_grad()  # Reset gradients tensors
         gc.collect()
 
@@ -94,15 +97,6 @@ if __name__ == '__main__':
         attention=True)
     from segmentation.modules import Architecture
 
-    for x in Architecture:
-        print(x)
-        print(x.get_architecture_params())
-
-
-    #print(signature)
-    #print(signature.parameters)
-    #for name, parameter in signature.parameters.items():
-    #    print(name, parameter.default, parameter.annotation, parameter.kind)
     x = Architecture.UNET
     params = x.get_architecture_params()
     params['classes'] = len(map)
@@ -110,14 +104,16 @@ if __name__ == '__main__':
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
 
-    #criterion = nn.NLLLoss()
+    # criterion = nn.NLLLoss()
     criterion = nn.CrossEntropyLoss()
     model.float()
-    optimizer = optim.Adam(model.encoder.parameters(), lr=1e-3)
-    optimizer2 = optim.Adam(model.decoder.parameters(), lr=1e-3)
-    optimizer3 = optim.Adam(model.segmentation_head.parameters(), lr=1e-3)
-
-
+    try:
+        optimizer1 = optim.Adam(model.encoder.parameters(), lr=1e-3)
+        optimizer2 = optim.Adam(model.decoder.parameters(), lr=1e-3)
+        optimizer3 = optim.Adam(model.segmentation_head.parameters(), lr=1e-3)
+        optimizer = [optimizer1, optimizer2, optimizer3]
+    except:
+        optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
     from torch.utils import data
 
@@ -128,5 +124,5 @@ if __name__ == '__main__':
         print('Training started ...')
         print(str(model))
         print(str(params))
-        train(model, device, train_loader, [optimizer, optimizer2, optimizer3], epoch, criterion, accumulation_steps=8)
+        train(model, device, train_loader, optimizer, epoch, criterion, accumulation_steps=8)
         test(model, device, test_loader)
