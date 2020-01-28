@@ -1,19 +1,7 @@
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-import torch
-from torch import nn
-import torch.nn.functional as F
-from torch.autograd import Variable
-from torch.optim import Adam
-from torch.utils.data import TensorDataset, DataLoader
-from tqdm import tqdm_notebook
-import seaborn as sns
-
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import torch.nn.functional as F
+import torch.optim as optim
 
 
 class BaseConv(nn.Module):
@@ -71,11 +59,24 @@ class UpConv(nn.Module):
         return x
 
 
+class UpConv_woskip(nn.Module):
+    def __init__(self, in_channels, out_channels,
+                 kernel_size, padding, stride):
+        super(UpConv_woskip, self).__init__()
+
+        self.conv_trans = nn.ConvTranspose2d(
+            in_channels, out_channels, kernel_size=stride, padding=0, stride=stride)
+
+    def forward(self, x):
+        x = self.conv_trans(x)
+        return x
+
+
 class UNet(nn.Module):
     def __init__(self, in_channels, out_channels, n_class, kernel_size,
-                 padding, stride):
+                 padding, stride, activation=None):
         super(UNet, self).__init__()
-
+        self.activation = None
         self.init_conv = BaseConv(in_channels, out_channels, kernel_size,
                                   padding, stride)
 
@@ -96,8 +97,8 @@ class UNet(nn.Module):
 
         self.up1 = UpConv(2 * out_channels, out_channels, out_channels,
                           kernel_size, padding, stride)
-
-        self.out = nn.Conv2d(out_channels, n_class, kernel_size, padding, stride)
+        if activation is not None:
+            self.out = nn.Conv2d(out_channels, n_class, kernel_size, padding, stride)
 
     def forward(self, x):
         # Encoder
@@ -109,7 +110,89 @@ class UNet(nn.Module):
         x_up = self.up3(x3, x2)
         x_up = self.up2(x_up, x1)
         x_up = self.up1(x_up, x)
-        x_out = F.log_softmax(self.out(x_up), 1)
+        if self.activation is not None:
+            x_out = F.log_softmax(self.out(x_up), 1)
+        else:
+            x_out = x_up
+        return x_out
+
+
+class Attention(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, padding, stride):
+        super().__init__()
+
+        self.init_conv = BaseConv(in_channels, out_channels, kernel_size,
+                                  padding, stride)
+
+        self.down1 = DownConv(out_channels, 2 * out_channels, kernel_size,
+                              padding, stride)
+
+        self.down2 = DownConv(2 * out_channels, 4 * out_channels, kernel_size,
+                              padding, stride)
+
+        self.down3 = DownConv(4 * out_channels, 8 * out_channels, kernel_size, padding, stride)
+        self.up1 = UpConv_woskip(8 * out_channels, out_channels, kernel_size, padding, stride=(8, 8))
+
+    def forward(self, x):
+        #print('attention')
+        x = self.init_conv(x)
+        #print(x.shape)
+        x1 = self.down1(x)
+        #print(x1.shape)
+        x2 = self.down2(x1)
+        #print(x2.shape)
+        x3 = self.down3(x2)
+        #print(x3.shape)
+        up1 = self.up1(x3)
+        #print(up1.shape)
+
+        return up1
+
+
+class AttentionUnet(nn.Module):
+    def __init__(self, in_channels, out_channels, n_class, kernel_size, padding, stride, attention=True):
+        super().__init__()
+        self.attention = attention
+
+        if attention:
+            self.m1 = UNet(in_channels, out_channels, n_class, kernel_size, padding, stride)
+            self.m2 = UNet(in_channels, out_channels, n_class, kernel_size, padding, stride)
+            self.m3 = UNet(in_channels, out_channels, n_class, kernel_size, padding, stride)
+            self.a1 = Attention(in_channels, out_channels, kernel_size, padding, stride)
+            self.a2 = Attention(in_channels, out_channels, kernel_size, padding, stride)
+            self.a3 = Attention(in_channels, out_channels, kernel_size, padding, stride)
+
+            self.out = nn.Conv2d(out_channels, n_class, kernel_size, padding, stride)
+
+            self.dpool1 = nn.AvgPool2d((2, 2))
+            self.dpool2 = nn.AvgPool2d((2, 2))
+            self.dpool3 = nn.AvgPool2d((2, 2))
+
+            self.upscale = nn.UpsamplingNearest2d(())
+
+        else:
+            self.m1 = UNet(in_channels, out_channels, n_class, kernel_size, padding, stride, activation='softmax')
+
+    def forward(self, x):
+        if self.attention:
+            x_d1 = self.dpool1(x)
+            x_d2 = self.dpool2(x_d1)
+            x_d3 = self.dpool3(x_d2)
+            # Encoder
+            #print(x.shape)
+            x_m = self.m1(x)
+            #print(x_m.shape)
+            x_a = self.a1(x)
+            #print(x_a.shape)
+
+            x1 = x_m * x_a
+            x2 = self.m2(x_d1) * self.a2(x_d1)
+            x3 = self.m3(x_d2) * self.a3(x_d2)
+
+            x4 = F.upsample_nearest(x1, x.shape[2:]) + F.upsample_nearest(x2, x.shape[2:]) + F.upsample_nearest(x3, x.shape[2:])
+            x_out = F.log_softmax(self.out(x4), 1)
+        else:
+            x_out = self.m1(x)
         return x_out
 
 

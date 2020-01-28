@@ -73,8 +73,9 @@ class MaskDataset(Dataset):
         mask = np.array(rescale_pil(mask, rescale_factor, 0))
         image = np.array(rescale_pil(image, rescale_factor, 1))
         mask_shape = mask.shape
-        h_dif = 32 - mask_shape[0] % 32
-        x_dif = 32 - mask_shape[1] % 32
+        l_factor = 128
+        h_dif = l_factor - mask_shape[0] % l_factor
+        x_dif = l_factor - mask_shape[1] % l_factor
 
         mask = np.pad(array=mask, pad_width=((h_dif, 0), (x_dif, 0), (0, 0)), constant_values=255)
         image = np.pad(array=image, pad_width=((h_dif, 0), (x_dif, 0), (0, 0)), constant_values=255)
@@ -350,14 +351,24 @@ if __name__ == '__main__':
     import torch.nn as nn
     import torch.optim as optim
     import torch.nn.functional as F
-    from segmentation.model import UNet
+    from segmentation.model import UNet, AttentionUnet
 
-    model = UNet(in_channels=3,
+    model1 = UNet(in_channels=3,
                  out_channels=8,
                  n_class=len(map),
                  kernel_size=3,
                  padding=1,
                  stride=1)
+
+    model = AttentionUnet(
+        in_channels=3,
+        out_channels=8,
+        n_class=len(map),
+        kernel_size=3,
+        padding=1,
+        stride=1,
+        attention=True)
+
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
 
