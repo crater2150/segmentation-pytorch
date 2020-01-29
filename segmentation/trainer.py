@@ -4,11 +4,10 @@ import gc
 from collections.abc import Iterable
 import torch
 import torch.nn as nn
-import torch.optim as optim
-import torch.nn.functional as F
 from torch.utils import data
-from segmentation.optimizer import Optimizers
 import logging
+from segmentation.settings import TrainSettings
+
 logger = logging.getLogger('Logger')
 
 
@@ -78,7 +77,6 @@ def get_model(architecture, kwargs):
     return architecture
 
 
-from segmentation.settings import TrainSettings
 
 
 class Trainer(object):

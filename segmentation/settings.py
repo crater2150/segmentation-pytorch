@@ -3,6 +3,8 @@ from segmentation.modules import Architecture
 from segmentation.dataset import MaskDataset
 from typing import NamedTuple
 from segmentation.optimizer import Optimizers
+from segmentation.model import CustomModel
+
 
 class TrainSettings(NamedTuple):
     TRAIN_DATASET: MaskDataset
@@ -21,6 +23,7 @@ class TrainSettings(NamedTuple):
     ARCHITECTURE: Architecture = Architecture.UNET
     ENCODER: str = 'resnet34'
     MODEL_PATH: str = None
+    CUSTOM_MODEL: CustomModel = None
 
     PROCESSES: int = 4
 
