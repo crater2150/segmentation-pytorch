@@ -56,12 +56,17 @@ def rescale_pil(image, scale, order=1):
     return image.resize((int(image.size[0] * scale), int(image.size[1] * scale)), order)
 
 
+def default_preprocessing(x):
+    return x / 255
+
+
 class MaskDataset(Dataset):
-    def __init__(self, df, color_map, transform=None):
+    def __init__(self, df, color_map, preprocessing=default_preprocessing, transform=None):
         self.df = df
         self.color_map = color_map
         self.augmentation = transform
         self.index = self.df.index.tolist()
+        self.preprocessing=preprocessing
 
     def __getitem__(self, item):
         image_id, mask_id = self.df.get('images')[item], self.df.get('masks')[item]
@@ -89,6 +94,9 @@ class MaskDataset(Dataset):
             for ind, x in enumerate(u_values):
                 mask[mask == x] = ind
             result["mask"] = mask
+
+        if self.preprocessing is not None:
+            result["image"] = self.preprocessing(result["image"])
 
         if self.augmentation is not None:
             result = self.augmentation(**result)
@@ -210,7 +218,7 @@ def resize_transforms(image_size=480):
 def post_transforms():
     # we use ImageNet image normalization
     # and convert it to torch.Tensor
-    return [albu.Normalize(), ToTensorV2()]
+    return [ToTensorV2()]
 
 
 def compose(transforms_to_compose):

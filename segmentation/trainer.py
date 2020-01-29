@@ -2,6 +2,12 @@ from segmentation.dataset import dirs_to_pandaframe, load_image_map_from_file, M
 from albumentations import (HorizontalFlip, ShiftScaleRotate, Normalize, Resize, Compose, GaussNoise)
 import gc
 from collections.abc import Iterable
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+from torch.utils import data
+
 
 def test(model, device, test_loader):
     model.eval()
@@ -10,7 +16,7 @@ def test(model, device, test_loader):
     with torch.no_grad():
         for data, target in test_loader:
             data, target = data.to(device), target.to(device, dtype=torch.int64)
-            output = model(data)
+            output = model(data.float())
             test_loss += F.nll_loss(output, target, reduction='sum').item()  # sum up batch loss
             pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
             correct += pred.eq(target.view_as(pred)).sum().item()
@@ -28,7 +34,7 @@ def train(model, device, train_loader, optimizer, epoch, criterion, accumulation
     correct_train = 0
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device, dtype=torch.int64)
-        output = model(data)
+        output = model(data.float())
         loss = criterion(output, target)
         loss = loss / accumulation_steps
         loss.backward()
@@ -59,6 +65,42 @@ def get_model(architecture, kwargs):
     return architecture
 
 
+from segmentation.settings import TrainSettings
+
+
+class Trainer(object):
+
+    def __init__(self, settings: TrainSettings):
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.settings = settings
+        self.model_params = self.settings.ARCHITECTURE.get_architecture_params()
+        self.model_params['classes'] = self.settings.CLASSES
+        self.model = get_model(self.settings.ARCHITECTURE, self.model_params)
+        # criterion = nn.NLLLoss()
+
+    def train(self):
+        criterion = nn.CrossEntropyLoss()
+        self.model.float()
+        try:
+            optimizer1 = optim.Adam(self.model.encoder.parameters(), lr=1e-3)
+            optimizer2 = optim.Adam(self.model.decoder.parameters(), lr=1e-3)
+            optimizer3 = optim.Adam(self.model.segmentation_head.parameters(), lr=1e-3)
+            optimizer = [optimizer1, optimizer2, optimizer3]
+        except:
+            optimizer = optim.Adam(self.model.parameters(), lr=1e-3)
+
+        train_loader = data.DataLoader(dataset=self.settings.TRAIN_DATASET, batch_size=self.settings.TRAIN_BATCH_SIZE, shuffle=True,
+                                       num_workers=self.settings.PROCESSES)
+        val_loader = data.DataLoader(dataset=self.settings.VAL_DATASET, batch_size=self.settings.VAL_BATCH_SIZE, shuffle=False)
+
+        for epoch in range(1, 3):
+            print('Training started ...')
+            print(str(self.model))
+            print(str(self.model_params))
+            train(self.model, self.device, train_loader, optimizer, epoch, criterion, accumulation_steps=8)
+            test(self.model, self.device, val_loader)
+
+
 if __name__ == '__main__':
     'https://github.com/catalyst-team/catalyst/blob/master/examples/notebooks/segmentation-tutorial.ipynb'
     a = dirs_to_pandaframe(
@@ -71,13 +113,15 @@ if __name__ == '__main__':
     )
     map = load_image_map_from_file(
         '/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/image_map.json')
-    dt = MaskDataset(a, map, transform=compose([post_transforms()]))
-    d_test = MaskDataset(b, map, transform=compose([post_transforms()]))
+    dt = MaskDataset(a, map, preprocessing=None, transform=compose([post_transforms()]))
+    d_val = MaskDataset(b, map, preprocessing=None, transform=compose([post_transforms()]))
 
-    import torch
-    import torch.nn as nn
-    import torch.optim as optim
-    import torch.nn.functional as F
+    from segmentation.settings import TrainSettings
+    setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=dt, VAL_DATASET=d_val)
+    trainer = Trainer(setting)
+    trainer.train()
+    '''
+
     from segmentation.model import UNet, AttentionUnet
 
     model1 = UNet(in_channels=3,
@@ -115,7 +159,6 @@ if __name__ == '__main__':
     except:
         optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
-    from torch.utils import data
 
     train_loader = data.DataLoader(dataset=dt, batch_size=1, shuffle=True, num_workers=5)
     test_loader = data.DataLoader(dataset=d_test, batch_size=1, shuffle=False)
@@ -126,3 +169,4 @@ if __name__ == '__main__':
         print(str(params))
         train(model, device, train_loader, optimizer, epoch, criterion, accumulation_steps=8)
         test(model, device, test_loader)
+    '''
