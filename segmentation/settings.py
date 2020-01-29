@@ -20,6 +20,7 @@ class TrainSettings(NamedTuple):
     VAL_BATCH_SIZE: int = 1
     ARCHITECTURE: Architecture = Architecture.UNET
     ENCODER: str = 'resnet34'
+    MODEL_PATH: str = None
 
     PROCESSES: int = 4
 
