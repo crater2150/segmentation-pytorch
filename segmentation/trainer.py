@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from torch.utils import data
 
 
-def test(model, device, test_loader):
+def test(model, device, test_loader, criterion):
     model.eval()
     test_loss = 0
     correct = 0
@@ -17,7 +17,7 @@ def test(model, device, test_loader):
         for data, target in test_loader:
             data, target = data.to(device), target.to(device, dtype=torch.int64)
             output = model(data.float())
-            test_loss += F.nll_loss(output, target, reduction='sum').item()  # sum up batch loss
+            test_loss += criterion(output, target, reduction='sum').item()  # sum up batch loss
             pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
             correct += pred.eq(target.view_as(pred)).sum().item()
 
@@ -26,15 +26,27 @@ def test(model, device, test_loader):
     print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
         test_loss, correct, len(test_loader.dataset),
         100. * correct / len(test_loader.dataset)))
+    return 100. * correct / len(test_loader.dataset)
 
 
-def train(model, device, train_loader, optimizer, epoch, criterion, accumulation_steps=8):
+def train(model, device, train_loader, optimizer, epoch, criterion, accumulation_steps=8, color_map=None):
+    def debug(mask, color_map):
+        if color_map is not None:
+            from matplotlib import pyplot as plt
+            from segmentation.dataset import label_to_colors
+            mask = torch.argmax(mask, dim=1)
+            print(mask.shape)
+            mask = torch.squeeze(mask)
+            plt.imshow(label_to_colors(mask=mask, colormap=color_map))
+            plt.show()
     model.train()
     total_train = 0
     correct_train = 0
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device, dtype=torch.int64)
         output = model(data.float())
+        print(output.shape)
+
         loss = criterion(output, target)
         loss = loss / accumulation_steps
         loss.backward()
@@ -51,6 +63,7 @@ def train(model, device, train_loader, optimizer, epoch, criterion, accumulation
                                                                                           train_accuracy), end="",
             flush=True)
         if (batch_idx + 1) % accumulation_steps == 0:  # Wait for several backward steps
+            debug(output, color_map)
             if isinstance(optimizer, Iterable):  # Now we can do an optimizer step
                 for opt in optimizer:
                     opt.step()
@@ -70,15 +83,16 @@ from segmentation.settings import TrainSettings
 
 class Trainer(object):
 
-    def __init__(self, settings: TrainSettings):
+    def __init__(self, settings: TrainSettings, color_map=None):
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.settings = settings
         self.model_params = self.settings.ARCHITECTURE.get_architecture_params()
         self.model_params['classes'] = self.settings.CLASSES
         self.model = get_model(self.settings.ARCHITECTURE, self.model_params)
-        # criterion = nn.NLLLoss()
+        self.color_map = color_map  # Optional for visualisation of mask data
 
     def train(self):
+
         criterion = nn.CrossEntropyLoss()
         self.model.float()
         try:
@@ -89,16 +103,22 @@ class Trainer(object):
         except:
             optimizer = optim.Adam(self.model.parameters(), lr=1e-3)
 
-        train_loader = data.DataLoader(dataset=self.settings.TRAIN_DATASET, batch_size=self.settings.TRAIN_BATCH_SIZE, shuffle=True,
-                                       num_workers=self.settings.PROCESSES)
+        train_loader = data.DataLoader(dataset=self.settings.TRAIN_DATASET, batch_size=self.settings.TRAIN_BATCH_SIZE,
+                                       shuffle=True, num_workers=self.settings.PROCESSES)
         val_loader = data.DataLoader(dataset=self.settings.VAL_DATASET, batch_size=self.settings.VAL_BATCH_SIZE, shuffle=False)
-
+        highest_accuracy = 0
         for epoch in range(1, 3):
             print('Training started ...')
             print(str(self.model))
             print(str(self.model_params))
-            train(self.model, self.device, train_loader, optimizer, epoch, criterion, accumulation_steps=8)
-            test(self.model, self.device, val_loader)
+            train(self.model, self.device, train_loader, optimizer, epoch, criterion,
+                  accumulation_steps=self.settings.BATCH_ACCUMULATION,
+                  color_map=self.color_map)
+            accuracy = test(self.model, self.device, val_loader, criterion=criterion)
+            if self.settings.OUTPUT_PATH is not None:
+                if accuracy > highest_accuracy:
+                    torch.save(self.model.state_dict(), self.settings.OUTPUT_PATH)
+                    highest_accuracy = accuracy
 
 
 if __name__ == '__main__':
@@ -118,7 +138,7 @@ if __name__ == '__main__':
 
     from segmentation.settings import TrainSettings
     setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=dt, VAL_DATASET=d_val)
-    trainer = Trainer(setting)
+    trainer = Trainer(setting, color_map=map)
     trainer.train()
     '''
 

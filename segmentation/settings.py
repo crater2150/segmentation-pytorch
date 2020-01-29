@@ -3,10 +3,13 @@ from segmentation.modules import Architecture
 from segmentation.dataset import MaskDataset
 from typing import NamedTuple
 
+
 class TrainSettings(NamedTuple):
     TRAIN_DATASET: MaskDataset
     VAL_DATASET: MaskDataset
     CLASSES: int
+    OUTPUT_PATH: str
+
 
     LEARNINGRATE_ENCODER: float = 1.e-5
     LEARNINGRATE_DECODER: float = 1.e-4
@@ -18,3 +21,10 @@ class TrainSettings(NamedTuple):
     ENCODER: str = 'resnet34'
 
     PROCESSES: int = 4
+
+
+class PredictorSettings(NamedTuple):
+    PREDICT_DATASET: MaskDataset
+    Architecture: Architecture =Architecture.UNET
+    ENCODER: str = "resnet34"
+
