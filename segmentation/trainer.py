@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from torch.utils import data
-
+from segmentation.optimizer import Optimizers
 
 def test(model, device, test_loader, criterion):
     model.eval()
@@ -35,7 +35,6 @@ def train(model, device, train_loader, optimizer, epoch, criterion, accumulation
             from matplotlib import pyplot as plt
             from segmentation.dataset import label_to_colors
             mask = torch.argmax(mask, dim=1)
-            print(mask.shape)
             mask = torch.squeeze(mask)
             plt.imshow(label_to_colors(mask=mask, colormap=color_map))
             plt.show()
@@ -89,25 +88,26 @@ class Trainer(object):
         self.model_params = self.settings.ARCHITECTURE.get_architecture_params()
         self.model_params['classes'] = self.settings.CLASSES
         self.model = get_model(self.settings.ARCHITECTURE, self.model_params)
-        self.color_map = color_map  # Optional for visualisation of mask data
+        self.color_map = color_map  # Opt ional for visualisation of mask data
 
     def train(self):
 
         criterion = nn.CrossEntropyLoss()
         self.model.float()
+        opt = self.settings.OPTIMIZER.getOptimizer()
         try:
-            optimizer1 = optim.Adam(self.model.encoder.parameters(), lr=1e-3)
-            optimizer2 = optim.Adam(self.model.decoder.parameters(), lr=1e-3)
-            optimizer3 = optim.Adam(self.model.segmentation_head.parameters(), lr=1e-3)
+            optimizer1 = opt(self.model.encoder.parameters(), lr=1e-3)
+            optimizer2 = opt(self.model.decoder.parameters(), lr=1e-3)
+            optimizer3 = opt(self.model.segmentation_head.parameters(), lr=1e-3)
             optimizer = [optimizer1, optimizer2, optimizer3]
         except:
-            optimizer = optim.Adam(self.model.parameters(), lr=1e-3)
+            optimizer = opt(self.model.parameters(), lr=1e-3)
 
         train_loader = data.DataLoader(dataset=self.settings.TRAIN_DATASET, batch_size=self.settings.TRAIN_BATCH_SIZE,
                                        shuffle=True, num_workers=self.settings.PROCESSES)
         val_loader = data.DataLoader(dataset=self.settings.VAL_DATASET, batch_size=self.settings.VAL_BATCH_SIZE, shuffle=False)
         highest_accuracy = 0
-        for epoch in range(1, 3):
+        for epoch in range(1, self.settings.EPOCHS):
             print('Training started ...')
             print(str(self.model))
             print(str(self.model_params))
@@ -137,7 +137,7 @@ if __name__ == '__main__':
     d_val = MaskDataset(b, map, preprocessing=None, transform=compose([post_transforms()]))
 
     from segmentation.settings import TrainSettings
-    setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=dt, VAL_DATASET=d_val)
+    setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=dt, VAL_DATASET=d_val, OUTPUT_PATH=".")
     trainer = Trainer(setting, color_map=map)
     trainer.train()
     '''

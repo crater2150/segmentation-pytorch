@@ -2,7 +2,7 @@ from enum import Enum
 from segmentation.modules import Architecture
 from segmentation.dataset import MaskDataset
 from typing import NamedTuple
-
+from segmentation.optimizer import Optimizers
 
 class TrainSettings(NamedTuple):
     TRAIN_DATASET: MaskDataset
@@ -10,7 +10,8 @@ class TrainSettings(NamedTuple):
     CLASSES: int
     OUTPUT_PATH: str
 
-
+    EPOCHS: int = 15
+    OPTIMIZER: Optimizers = Optimizers.ADAM
     LEARNINGRATE_ENCODER: float = 1.e-5
     LEARNINGRATE_DECODER: float = 1.e-4
     LEARNINGRATE_SEGHEAD: float = 1.e-4
@@ -25,6 +26,6 @@ class TrainSettings(NamedTuple):
 
 class PredictorSettings(NamedTuple):
     PREDICT_DATASET: MaskDataset
-    Architecture: Architecture =Architecture.UNET
+    Architecture: Architecture
     ENCODER: str = "resnet34"
 
