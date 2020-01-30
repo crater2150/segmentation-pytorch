@@ -15,7 +15,7 @@ from skimage.transform import rescale, resize
 import albumentations as albu
 import torch
 import gc
-
+from segmentation.util import gray_to_rgb
 
 # When training/testing/evaluationg on cpu set environment vairalbe LRU_CACHE_CAPACITY=1
 # Needed for dynamicaly sized inputs, else memory leak
@@ -57,18 +57,19 @@ def rescale_pil(image, scale, order=1):
 
 
 def default_preprocessing(x):
-    return x / 255
+    return x / 255.
 
 
 class MaskDataset(Dataset):
-    def __init__(self, df, color_map, preprocessing=default_preprocessing, transform=None):
+    def __init__(self, df, color_map, preprocessing=default_preprocessing, transform=None, rgb=True):
         self.df = df
         self.color_map = color_map
         self.augmentation = transform
         self.index = self.df.index.tolist()
-        self.preprocessing=preprocessing
+        self.preprocessing = preprocessing
+        self.rgb = rgb
 
-    def __getitem__(self, item):
+    def __getitem__(self, item, apply_preprocessing=True):
         image_id, mask_id = self.df.get('images')[item], self.df.get('masks')[item]
 
         image = Image.open(image_id)
@@ -84,7 +85,8 @@ class MaskDataset(Dataset):
 
         mask = np.pad(array=mask, pad_width=((h_dif, 0), (x_dif, 0), (0, 0)), constant_values=255)
         image = np.pad(array=image, pad_width=((h_dif, 0), (x_dif, 0), (0, 0)), constant_values=255)
-
+        if self.rgb:
+            image = gray_to_rgb(image)
         result = {"image": image}
         if mask.ndim == 3:
             result["mask"] = color_to_label(mask, self.color_map)
@@ -95,21 +97,12 @@ class MaskDataset(Dataset):
                 mask[mask == x] = ind
             result["mask"] = mask
 
-        if self.preprocessing is not None:
+        if self.preprocessing is not None and apply_preprocessing:
             result["image"] = self.preprocessing(result["image"])
 
         if self.augmentation is not None:
             result = self.augmentation(**result)
 
-        # result["mask"] = torch.from_numpy(to_categorical(result["mask"], len(self.color_map)))
-
-        # print(result["mask"].shape)
-        # print(result["image"].shape)
-        # result['image'] = result['image'] / 255
-        # result["mask"] = result["mask"]
-        # result['image'] = result['image'].transpose((2, 0, 1))
-
-        # im, mask = torch.from_numpy(result["image"]).float(), torch.from_numpy(result['mask'])
         return result["image"], result["mask"]
 
     def __len__(self):
@@ -297,15 +290,18 @@ def train(model, device, train_loader, optimizer, epoch, accumulation_steps=8):
         total_train += target.nelement()
         correct_train += predicted.eq(target.data).sum().item()
         train_accuracy = 100 * correct_train / total_train
-        print('\r Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tAccuracy: {:.6f}'.format(epoch, batch_idx * len(data),
-                                                                                         len(train_loader.dataset),
-                                                                                         100. * batch_idx / len(
-                                                                                             train_loader), loss.item(),
-                                                                                         train_accuracy), end="", flush=True)
+        print(
+            '\r Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tAccuracy: {:.6f}'.format(epoch, batch_idx * len(data),
+                                                                                          len(train_loader.dataset),
+                                                                                          100. * batch_idx / len(
+                                                                                              train_loader),
+                                                                                          loss.item(),
+                                                                                          train_accuracy), end="",
+            flush=True)
         if (batch_idx + 1) % accumulation_steps == 0:  # Wait for several backward steps
             optimizer.step()  # Now we can do an optimizer step
             model.zero_grad()  # Reset gradients tensors
-        #track()
+        # track()
         gc.collect()
 
 
@@ -362,11 +358,11 @@ if __name__ == '__main__':
     from segmentation.model import UNet, AttentionUnet
 
     model1 = UNet(in_channels=3,
-                 out_channels=8,
-                 n_class=len(map),
-                 kernel_size=3,
-                 padding=1,
-                 stride=1)
+                  out_channels=8,
+                  n_class=len(map),
+                  kernel_size=3,
+                  padding=1,
+                  stride=1)
 
     model = AttentionUnet(
         in_channels=3,
@@ -389,9 +385,7 @@ if __name__ == '__main__':
     train_loader = data.DataLoader(dataset=dt, batch_size=1, shuffle=True, num_workers=5)
     test_loader = data.DataLoader(dataset=d_test, batch_size=1, shuffle=False)
 
-
     for epoch in range(1, 3):
         print('Training started ...')
         train(model, device, train_loader, optimizer, epoch)
         test(model, device, test_loader)
-
