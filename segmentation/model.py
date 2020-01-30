@@ -2,6 +2,17 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from enum import Enum
+
+
+class CustomModel(Enum):
+    UNET = 'unet'
+    AttentionNet = 'attentionunet'
+
+    def __call__(self):
+        return {'unet': UNet,
+                'attentionunet': AttentionUnet,
+                }[self.value]
 
 
 class BaseConv(nn.Module):
