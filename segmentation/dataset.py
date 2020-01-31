@@ -16,6 +16,7 @@ import albumentations as albu
 import torch
 import gc
 from segmentation.util import gray_to_rgb
+from pagexml_mask_converter.pagexml_to_mask import MaskGenerator, MaskSetting, BaseMaskGenerator, MaskType, PCGTSVersion
 
 # When training/testing/evaluationg on cpu set environment vairalbe LRU_CACHE_CAPACITY=1
 # Needed for dynamicaly sized inputs, else memory leak
@@ -78,6 +79,61 @@ class MaskDataset(Dataset):
             if image.size[1] > 1000 else 1
         mask = np.array(rescale_pil(mask, rescale_factor, 0))
         image = np.array(rescale_pil(image, rescale_factor, 1))
+        mask_shape = mask.shape
+        l_factor = 128
+        h_dif = l_factor - mask_shape[0] % l_factor
+        x_dif = l_factor - mask_shape[1] % l_factor
+
+        mask = np.pad(array=mask, pad_width=((h_dif, 0), (x_dif, 0), (0, 0)), constant_values=255)
+        image = np.pad(array=image, pad_width=((h_dif, 0), (x_dif, 0), (0, 0)), constant_values=255)
+        if self.rgb:
+            image = gray_to_rgb(image)
+        result = {"image": image}
+        if mask.ndim == 3:
+            result["mask"] = color_to_label(mask, self.color_map)
+        elif mask.ndim == 2:
+            u_values = np.unique(mask)
+            mask = result["mask"]
+            for ind, x in enumerate(u_values):
+                mask[mask == x] = ind
+            result["mask"] = mask
+
+        if self.preprocessing is not None and apply_preprocessing:
+            result["image"] = self.preprocessing(result["image"])
+
+        if self.augmentation is not None:
+            result = self.augmentation(**result)
+
+        return result["image"], result["mask"]
+
+    def __len__(self):
+        return len(self.index)
+
+
+class XMLDataset(Dataset):
+    def __init__(self, df, color_map, mask_generator: BaseMaskGenerator, preprocessing=default_preprocessing, transform=None, rgb=True):
+        self.df = df
+        self.color_map = color_map
+        self.augmentation = transform
+        self.index = self.df.index.tolist()
+        self.preprocessing = preprocessing
+        self.rgb = rgb
+        self.mask_generator = mask_generator
+
+    def __getitem__(self, item, apply_preprocessing=True):
+        image_id, mask_id = self.df.get('images')[item], self.df.get('masks')[item]
+
+        image = Image.open(image_id)
+        rescale_factor = 0.25 if image.size[1] > 3000 else 0.33 if image.size[1] > 2000 else 0.5 \
+            if image.size[1] > 1000 else 1
+        mask = self.mask_generator.get_mask(mask_id, rescale_factor)
+        image = np.array(rescale_pil(image, rescale_factor, 1))
+        f, ax = plt.subplots(1, 2, True, True)
+        ax[0].imshow(image)
+        ax[1].imshow(mask)
+        plt.show()
+        print(mask.shape)
+        print(image.shape)
         mask_shape = mask.shape
         l_factor = 128
         h_dif = l_factor - mask_shape[0] % l_factor
@@ -281,7 +337,7 @@ def train(model, device, train_loader, optimizer, epoch, accumulation_steps=8):
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device, dtype=torch.int64)
         optimizer.zero_grad()
-        output = model(data)
+        output = model(data.float())
         loss = F.nll_loss(output, target)
         loss = loss / accumulation_steps
         loss.backward()
@@ -339,17 +395,19 @@ def track():
 if __name__ == '__main__':
     'https://github.com/catalyst-team/catalyst/blob/master/examples/notebooks/segmentation-tutorial.ipynb'
     a = dirs_to_pandaframe(
-        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/train/images/'],
-        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/train/masks/'])
+        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/train/image/'],
+        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/train/page/'])
 
     b = dirs_to_pandaframe(
-        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/test/images/'],
-        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/test/masks/']
-    )
+        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/test/image/'],
+        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/test/page/'])
+
     map = load_image_map_from_file(
         '/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/image_map.json')
-    dt = MaskDataset(a, map, transform=compose([post_transforms()]))
-    d_test = MaskDataset(b, map, transform=compose([post_transforms()]))
+
+    settings = MaskSetting(MASK_TYPE=MaskType.BASE_LINE, PCGTS_VERSION=PCGTSVersion.PCGTS2013, LINEWIDTH=5, BASELINELENGTH=10)
+    dt = XMLDataset(a, map, transform=compose([post_transforms()]), mask_generator=MaskGenerator(settings=settings))
+    d_test = XMLDataset(b, map, transform=compose([post_transforms()]), mask_generator=MaskGenerator(settings=settings))
 
     import torch
     import torch.nn as nn

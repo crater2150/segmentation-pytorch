@@ -24,20 +24,27 @@ def test(model, device, test_loader, criterion):
     model.eval()
     test_loss = 0
     correct = 0
+    total = 0
     with torch.no_grad():
-        for data, target in test_loader:
+        for idx, (data, target) in enumerate(test_loader):
             data, target = data.to(device), target.to(device, dtype=torch.int64)
             output = model(data.float())
-            test_loss += torch.nn.functional.cross_entropy(output, target, reduction='sum').item()  # sum up batch loss
-            pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
-            correct += pred.eq(target.view_as(pred)).sum().item()
+            #test_loss += torch.nn.functional.cross_entropy(output, target, reduction='sum').item()  # sum up batch loss
+            test_loss += criterion(output, target)
+            _, predicted = torch.max(output.data, 1)
+
+            total += target.nelement()
+            correct += predicted.eq(target.data).sum().item()
+            #pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
+            #correct += pred.eq(target.view_as(pred)).sum().item()
+            logger.info('\r Image [{}/{}'.format(idx * len(data), len(test_loader.dataset)))
 
     test_loss /= len(test_loader.dataset)
 
     logger.info('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
         test_loss, correct, len(test_loader.dataset),
-        100. * correct / len(test_loader.dataset)))
-    return 100. * correct / len(test_loader.dataset)
+        100. * correct / total/ len(test_loader.dataset)))
+    return 100. * correct / total / len(test_loader.dataset)
 
 
 def train(model, device, train_loader, optimizer, epoch, criterion, accumulation_steps=8, color_map=None):
@@ -116,15 +123,15 @@ class Network(object):
         elif isinstance(settings, TrainSettings):
             self.settings.TRAIN_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(self.settings.ENCODER)
             self.settings.VAL_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(self.settings.ENCODER)
-
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        self.device = torch.device(device)
         self.model_params = self.settings.ARCHITECTURE.get_architecture_params()
         self.model_params['classes'] = self.settings.CLASSES
         self.model_params['decoder_use_batchnorm'] = False
         self.model = get_model(self.settings.ARCHITECTURE, self.model_params)
         if self.settings.MODEL_PATH:
             try:
-                self.model.load_state_dict(torch.load(self.settings.MODEL_PATH))
+                self.model.load_state_dict(torch.load(self.settings.MODEL_PATH, map_location=torch.device(device)))
             except Exception:
                 logger.warning('Could not load model weights, ... Skipping\n')
 
@@ -152,17 +159,17 @@ class Network(object):
         val_loader = data.DataLoader(dataset=self.settings.VAL_DATASET, batch_size=self.settings.VAL_BATCH_SIZE,
                                      shuffle=False)
         highest_accuracy = 0
+        logger.info(str(self.model) + "\n")
+        logger.info(str(self.model_params) + "\n")
+        logger.info('Training started ...\n"')
         for epoch in range(1, self.settings.EPOCHS):
-            logger.info(str(self.model) + "\n")
-            logger.info(str(self.model_params) + "\n")
-            logger.info('Training started ...\n"')
-
             train(self.model, self.device, train_loader, optimizer, epoch, criterion,
                   accumulation_steps=self.settings.BATCH_ACCUMULATION,
                   color_map=self.color_map)
             accuracy = test(self.model, self.device, val_loader, criterion=criterion)
             if self.settings.OUTPUT_PATH is not None:
                 if accuracy > highest_accuracy:
+                    logger.info('Saving model to {}\n'.format(self.settings.OUTPUT_PATH))
                     torch.save(self.model.state_dict(), self.settings.OUTPUT_PATH)
                     highest_accuracy = accuracy
 
@@ -184,6 +191,7 @@ if __name__ == '__main__':
         ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/test/images/'],
         ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/test/masks/']
     )
+    b = b[:20]
     map = load_image_map_from_file(
         '/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/image_map.json')
     dt = MaskDataset(a, map, preprocessing=None, transform=compose([post_transforms()]))
@@ -191,6 +199,6 @@ if __name__ == '__main__':
 
     from segmentation.settings import TrainSettings
 
-    setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=dt, VAL_DATASET=d_val, OUTPUT_PATH=".")
+    setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=dt, VAL_DATASET=d_val, OUTPUT_PATH="model.torch", MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/model2.torch')
     trainer = Network(setting, color_map=map)
     trainer.train()
