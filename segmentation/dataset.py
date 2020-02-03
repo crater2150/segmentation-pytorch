@@ -17,6 +17,7 @@ import torch
 import gc
 from segmentation.util import gray_to_rgb
 from pagexml_mask_converter.pagexml_to_mask import MaskGenerator, MaskSetting, BaseMaskGenerator, MaskType, PCGTSVersion
+import math
 
 # When training/testing/evaluationg on cpu set environment vairalbe LRU_CACHE_CAPACITY=1
 # Needed for dynamicaly sized inputs, else memory leak
@@ -124,18 +125,62 @@ class XMLDataset(Dataset):
         image_id, mask_id = self.df.get('images')[item], self.df.get('masks')[item]
 
         image = Image.open(image_id)
-        rescale_factor = 0.25 if image.size[1] > 3000 else 0.33 if image.size[1] > 2000 else 0.5 \
-            if image.size[1] > 1000 else 1
+        if (image.size[1] * image.size[0]) >= 1500000:
+            rescale_factor = math.sqrt(1500000 / (image.size[1] * image.size[0]))
+        else:
+            rescale_factor = 1.0
         mask = self.mask_generator.get_mask(mask_id, rescale_factor)
         image = np.array(rescale_pil(image, rescale_factor, 1))
-        f, ax = plt.subplots(1, 2, True, True)
-        ax[0].imshow(image)
-        ax[1].imshow(mask)
-        plt.show()
-        print(mask.shape)
-        print(image.shape)
         mask_shape = mask.shape
-        l_factor = 128
+        l_factor = 32
+        h_dif = l_factor - mask_shape[0] % l_factor
+        x_dif = l_factor - mask_shape[1] % l_factor
+
+        mask = np.pad(array=mask, pad_width=((h_dif, 0), (x_dif, 0), (0, 0)), constant_values=255)
+        image = np.pad(array=image, pad_width=((h_dif, 0), (x_dif, 0), (0, 0)), constant_values=255)
+        if self.rgb:
+            image = gray_to_rgb(image)
+        result = {"image": image}
+        if mask.ndim == 3:
+            result["mask"] = color_to_label(mask, self.color_map)
+        elif mask.ndim == 2:
+            u_values = np.unique(mask)
+            mask = result["mask"]
+            for ind, x in enumerate(u_values):
+                mask[mask == x] = ind
+            result["mask"] = mask
+
+        if self.preprocessing is not None and apply_preprocessing:
+            result["image"] = self.preprocessing(result["image"])
+
+        if self.augmentation is not None:
+            result = self.augmentation(**result)
+
+        return result["image"], result["mask"]
+
+    def __len__(self):
+        return len(self.index)
+
+class PredictDataset(Dataset):
+    def __init__(self, df, color_map, mask_generator: BaseMaskGenerator, preprocessing=default_preprocessing, transform=None, rgb=True):
+        self.df = df
+        self.color_map = color_map
+        self.index = self.df.index.tolist()
+        self.preprocessing = preprocessing
+        self.rgb = rgb
+
+    def __getitem__(self, item, apply_preprocessing=True):
+        image_id, mask_id = self.df.get('images')[item], self.df.get('masks')[item]
+
+        image = Image.open(image_id)
+        if (image.size[1] * image.size[0]) >= 1500000:
+            rescale_factor = math.sqrt(1500000 / (image.size[1] * image.size[0]))
+        else:
+            rescale_factor = 1.0
+        #mask = self.mask_generator.get_mask(mask_id, rescale_factor)
+        image = np.array(rescale_pil(image, rescale_factor, 1))
+        mask_shape = image.shape
+        l_factor = 32
         h_dif = l_factor - mask_shape[0] % l_factor
         x_dif = l_factor - mask_shape[1] % l_factor
 

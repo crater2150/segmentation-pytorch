@@ -21,7 +21,7 @@ class TrainSettings(NamedTuple):
     TRAIN_BATCH_SIZE: int = 1
     VAL_BATCH_SIZE: int = 1
     ARCHITECTURE: Architecture = Architecture.UNET
-    ENCODER: str = 'resnet34'
+    ENCODER: str = 'efficientnet-b3'
     MODEL_PATH: str = None
     CUSTOM_MODEL: CustomModel = None
 
@@ -29,7 +29,10 @@ class TrainSettings(NamedTuple):
 
 
 class PredictorSettings(NamedTuple):
+    CLASSES: int
     PREDICT_DATASET: MaskDataset
-    Architecture: Architecture
-    ENCODER: str = "resnet34"
+    MODEL_PATH: str = None
+    ARCHITECTURE: Architecture = Architecture.UNET
+    ENCODER: str = "efficientnet-b3"
+    PROCESSES: int = 4
 
