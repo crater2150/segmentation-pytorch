@@ -171,7 +171,7 @@ class Network(object):
                 logger.warning('Could not load model weights, ... Skipping\n')
 
         self.color_map = color_map  # Optional for visualisation of mask data
-        self.
+        self.model.to(self.device)
 
     def train(self):
 
