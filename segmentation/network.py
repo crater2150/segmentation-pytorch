@@ -24,6 +24,21 @@ logger.setLevel(logging.DEBUG)
 logger.addHandler(console_logger)
 
 
+def pad(tensor, factor=32):
+    shape = list(tensor.shape)[2:]
+    h_dif = factor - (shape[0] % factor)
+    x_dif = factor - (shape[1] % factor)
+    augmented_image = tensor
+    if h_dif != factor and x_dif != factor:
+        augmented_image = torch.nn.functional.pad(input=tensor, pad=[0, x_dif, 0, h_dif])
+    return augmented_image
+
+
+def unpad(tensor, o_shape):
+    output = tensor[:, :, :o_shape[0], :o_shape[1]]
+    return output
+
+
 def test(model, device, test_loader, criterion):
     model.eval()
     test_loss = 0
@@ -32,7 +47,13 @@ def test(model, device, test_loader, criterion):
     with torch.no_grad():
         for idx, (data, target) in enumerate(test_loader):
             data, target = data.to(device), target.to(device, dtype=torch.int64)
-            output = model(data.float())
+            shape = list(data.shape)[2:]
+            padded = pad(data, 32)
+
+            input = padded.float()
+
+            output = model(input)
+            output = unpad(output, shape)
             # test_loss += torch.nn.functional.cross_entropy(output, target, reduction='sum').item()  # sum up batch loss
             test_loss += criterion(output, target)
             _, predicted = torch.max(output.data, 1)
@@ -83,7 +104,14 @@ def train(model, device, train_loader, optimizer, epoch, criterion, accumulation
     for batch_idx, (data, target) in enumerate(train_loader):
 
         data, target = data.to(device), target.to(device, dtype=torch.int64)
-        output = model(data.float())
+
+        shape = list(data.shape)[2:]
+        padded = pad(data, 32)
+
+        input = padded.float()
+
+        output = model(input)
+        output = unpad(output, shape)
         loss = criterion(output, target)
         loss = loss / accumulation_steps
         loss.backward()
@@ -198,8 +226,8 @@ class Network(object):
         # tta_model = tta.SegmentationTTAWrapper(self.model, tta.aliases.multiscale_transform(scales=[1.2]), merge_mode='mean')
         transforms = tta.Compose(
             [
-                #tta.HorizontalFlip(),
-                tta.Scale(scales=[0.9, 1, 1.1]),
+                # tta.HorizontalFlip(),
+                tta.Scale(scales=[1]),
             ]
         )
         with torch.no_grad():
@@ -210,22 +238,12 @@ class Network(object):
                 for transformer in transforms:
                     augmented_image = transformer.augment_image(data)
                     shape = list(augmented_image.shape)[2:]
-                    l_factor = 32
-                    x_factor = shape[0] % l_factor
-                    h_dif = l_factor - (shape[0] % l_factor)
-                    x_dif = l_factor - (shape[1] % l_factor)
-                    if h_dif != l_factor and x_dif != l_factor:
-                        print("no padded")
-                        print(h_dif)
-                        print(x_dif)
-                        augmented_image = torch.nn.functional.pad(input=augmented_image, pad=[0, x_dif, 0, h_dif])
-                    # augmented_mask = transformer.augment_image(target)
-                    # print(augmented_image.shape)
-                    input = augmented_image.float()
+                    padded = pad(augmented_image, 32)
+
+                    input = padded.float()
                     # print(input.shape)
                     output = self.model(input)
-                    if h_dif != l_factor and x_dif != l_factor:
-                        output = output[:, :, :shape[0], :shape[1]]
+                    output = unpad(output, shape)
                     reversed = transformer.deaugment_mask(output)
                     reversed = torch.nn.functional.interpolate(reversed, size=list(o_shape)[2:], mode="nearest")
                     print("original: {} input: {}, padded: {} unpadded {} output {}".format(str(o_shape),
@@ -294,14 +312,15 @@ class Network(object):
     def predict_single_image(self):
         pass
 
+
 def plot_list(lsit):
     import matplotlib.pyplot as plt
     import numpy as np
 
-    #f, ax = plt.subplots(1, len(lsit), True, True)
-    #for ind, x in enumerate(lsit):
+    # f, ax = plt.subplots(1, len(lsit), True, True)
+    # for ind, x in enumerate(lsit):
     #    ax[ind].imshow(x)
-    #plt.show()
+    # plt.show()
     import matplotlib.pyplot as plt
     import numpy as np
     print(len(lsit))
@@ -311,13 +330,17 @@ def plot_list(lsit):
     ind = 0
     row = 0
     for x in lsit:
-        ax[row, ind].imshow(x)
+        if rows > 1:
+            ax[row, ind].imshow(x)
+        else:
+            ax[ind].imshow(x)
         ind += 1
         if ind == images_per_row:
             row += 1
             ind = 0
 
     plt.show()
+
     def show_images(images, cols=1, titles=None):
         """Display a list of images in a single figure with matplotlib.
 
@@ -372,20 +395,28 @@ if __name__ == '__main__':
         ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/test/image/'],
         ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/test/page/'])
 
+    c = dirs_to_pandaframe(
+        ['/home/alexander/Dokumente/HBR2013/images/'],
+        ['/home/alexander/Dokumente/HBR2013/masks/']
+    )
+    print(c)
     map = load_image_map_from_file(
         '/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/image_map.json')
+    from segmentation.dataset import base_line_transform
 
     settings = MaskSetting(MASK_TYPE=MaskType.BASE_LINE, PCGTS_VERSION=PCGTSVersion.PCGTS2013, LINEWIDTH=5,
                            BASELINELENGTH=10)
-    dt = XMLDataset(a, map, transform=compose([post_transforms()]), mask_generator=MaskGenerator(settings=settings))
-    d_test = XMLDataset(b, map, transform=compose([post_transforms()]), mask_generator=MaskGenerator(settings=settings))
+    dt = XMLDataset(a, map, transform=compose([base_line_transform()]), mask_generator=MaskGenerator(settings=settings))
+    d_test = XMLDataset(b, map, transform=compose([base_line_transform()]),
+                        mask_generator=MaskGenerator(settings=settings))
+    d_predict = MaskDataset(c, map, transform=compose([base_line_transform()]))
     from segmentation.settings import TrainSettings
 
     setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=dt, VAL_DATASET=d_test, OUTPUT_PATH="model.torch",
                             MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/model.torch')
-    p_setting = PredictorSettings(CLASSES=len(map), PREDICT_DATASET=d_test,
+    p_setting = PredictorSettings(CLASSES=len(map), PREDICT_DATASET=d_predict,
                                   MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/model.torch')
-    trainer = Network(p_setting, color_map=map)
-    for x in trainer.predict():
-        print(x.shape)
-    # trainer.train()
+    trainer = Network(setting, color_map=map)
+    # for x in trainer.predict():
+    #    print(x.shape)
+    trainer.train()

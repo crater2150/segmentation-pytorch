@@ -76,19 +76,24 @@ class MaskDataset(Dataset):
 
         image = Image.open(image_id)
         mask = Image.open(mask_id)
-        rescale_factor = 0.25 if image.size[1] > 3000 else 0.33 if image.size[1] > 2000 else 0.5 \
-            if image.size[1] > 1000 else 1
+        #rescale_factor = 0.25 if image.size[1] > 3000 else 0.33 if image.size[1] > 2000 else 0.5 \
+        #    if image.size[1] > 1000 else 1
+
+        if (image.size[1] * image.size[0]) >= 1500000:
+            rescale_factor = math.sqrt(1500000 / (image.size[1] * image.size[0]))
+        else:
+            rescale_factor = 1.0
         mask = np.array(rescale_pil(mask, rescale_factor, 0))
         image = np.array(rescale_pil(image, rescale_factor, 1))
         mask_shape = mask.shape
-        l_factor = 128
+        l_factor = 32
         h_dif = l_factor - mask_shape[0] % l_factor
         x_dif = l_factor - mask_shape[1] % l_factor
-
-        mask = np.pad(array=mask, pad_width=((h_dif, 0), (x_dif, 0), (0, 0)), constant_values=255)
-        image = np.pad(array=image, pad_width=((h_dif, 0), (x_dif, 0), (0, 0)), constant_values=255)
         if self.rgb:
             image = gray_to_rgb(image)
+        mask = np.pad(array=mask, pad_width=((h_dif, 0), (x_dif, 0), (0, 0)), constant_values=255)
+        image = np.pad(array=image, pad_width=((h_dif, 0), (x_dif, 0), (0, 0)), constant_values=255)
+
         result = {"image": image}
         if mask.ndim == 3:
             result["mask"] = color_to_label(mask, self.color_map)
@@ -99,11 +104,13 @@ class MaskDataset(Dataset):
                 mask[mask == x] = ind
             result["mask"] = mask
 
+        if self.augmentation is not None:
+            result = self.augmentation(**result)
+
         if self.preprocessing is not None and apply_preprocessing:
             result["image"] = self.preprocessing(result["image"])
 
-        if self.augmentation is not None:
-            result = self.augmentation(**result)
+        result = compose([post_transforms()])(**result)
 
         return result["image"], result["mask"]
 
@@ -138,6 +145,7 @@ class XMLDataset(Dataset):
 
         mask = np.pad(array=mask, pad_width=((h_dif, 0), (x_dif, 0), (0, 0)), constant_values=255)
         image = np.pad(array=image, pad_width=((h_dif, 0), (x_dif, 0), (0, 0)), constant_values=255)
+
         if self.rgb:
             image = gray_to_rgb(image)
         result = {"image": image}
@@ -150,16 +158,21 @@ class XMLDataset(Dataset):
                 mask[mask == x] = ind
             result["mask"] = mask
 
+        if self.augmentation is not None:
+            result = self.augmentation(**result)
+
         if self.preprocessing is not None and apply_preprocessing:
             result["image"] = self.preprocessing(result["image"])
 
-        if self.augmentation is not None:
-            result = self.augmentation(**result)
+        result = compose([post_transforms()])(**result)
+
+
 
         return result["image"], result["mask"]
 
     def __len__(self):
         return len(self.index)
+
 
 class PredictDataset(Dataset):
     def __init__(self, df, color_map, mask_generator: BaseMaskGenerator, preprocessing=default_preprocessing, transform=None, rgb=True):
@@ -274,6 +287,17 @@ def hard_transforms():
 
     return result
 
+def base_line_transform():
+    result = [
+    albu.HorizontalFlip(),
+    albu.RandomGamma(),
+    albu.RandomBrightnessContrast(),
+    albu.OneOf([
+            albu.ToGray(),
+            albu.CLAHE()]),
+    albu.RandomScale(),
+    ]
+    return result
 
 def resize_transforms(image_size=480):
     BORDER_CONSTANT = 0
