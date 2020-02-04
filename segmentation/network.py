@@ -28,8 +28,10 @@ def pad(tensor, factor=32):
     shape = list(tensor.shape)[2:]
     h_dif = factor - (shape[0] % factor)
     x_dif = factor - (shape[1] % factor)
+    x_dif = x_dif if factor != x_dif else 0
+    h_dif = h_dif if factor != h_dif else 0
     augmented_image = tensor
-    if h_dif != factor and x_dif != factor:
+    if h_dif != 0 or x_dif != 0:
         augmented_image = torch.nn.functional.pad(input=tensor, pad=[0, x_dif, 0, h_dif])
     return augmented_image
 
@@ -169,6 +171,7 @@ class Network(object):
                 logger.warning('Could not load model weights, ... Skipping\n')
 
         self.color_map = color_map  # Optional for visualisation of mask data
+        self.
 
     def train(self):
 
