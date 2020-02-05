@@ -56,22 +56,19 @@ def test(model, device, test_loader, criterion):
 
             output = model(input)
             output = unpad(output, shape)
-            # test_loss += torch.nn.functional.cross_entropy(output, target, reduction='sum').item()  # sum up batch loss
             test_loss += criterion(output, target)
             _, predicted = torch.max(output.data, 1)
 
             total += target.nelement()
             correct += predicted.eq(target.data).sum().item()
-            # pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
-            # correct += pred.eq(target.view_as(pred)).sum().item()
             logger.info('\r Image [{}/{}'.format(idx * len(data), len(test_loader.dataset)))
 
     test_loss /= len(test_loader.dataset)
 
     logger.info('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.6f}%)\n'.format(
         test_loss, correct, len(test_loader.dataset),
-        100. * correct / total))  #/ len(test_loader.dataset)))
-    return 100. * correct / total  #/ len(test_loader.dataset)
+        100. * correct / total))
+    return 100. * correct / total
 
 
 def train(model, device, train_loader, optimizer, epoch, criterion, accumulation_steps=8, color_map=None):
@@ -82,12 +79,8 @@ def train(model, device, train_loader, optimizer, epoch, criterion, accumulation
             stds = [0.229, 0.224, 0.225]
             mask = torch.argmax(mask, dim=1)
             mask = torch.squeeze(mask)
-            # print(original.shape)
             original = original.permute(0, 2, 3, 1)
-            # print(original.shape)
             original = torch.squeeze(original).cpu().numpy()
-            # print(sm.encoders.get_preprocessing_params("resnet34"))
-            # print(get_preprocessing_params(encoder_name, pretrained=pretrained))
             original = original * stds
             original = original + mean
             original = original * 255
@@ -128,9 +121,6 @@ def train(model, device, train_loader, optimizer, epoch, criterion, accumulation
                                                                                               train_loader),
                                                                                           loss.item(),
                                                                                           train_accuracy)),
-        # sys.stdout.flush()
-        # , end="",
-        #    flush=True)
         if (batch_idx + 1) % accumulation_steps == 0:  # Wait for several backward steps
             debug(output, target, data, color_map)
             if isinstance(optimizer, Iterable):  # Now we can do an optimizer step
@@ -223,10 +213,7 @@ class Network(object):
         predict_loader = data.DataLoader(dataset=self.settings.PREDICT_DATASET,
                                          batch_size=1,
                                          shuffle=False, num_workers=self.settings.PROCESSES)
-        total = 0
-
         import ttach as tta
-        # tta_model = tta.SegmentationTTAWrapper(self.model, tta.aliases.multiscale_transform(scales=[1.2]), merge_mode='mean')
         transforms = tta.Compose(
             [
                 tta.HorizontalFlip(),
@@ -244,7 +231,6 @@ class Network(object):
                     padded = pad(augmented_image, 32)
 
                     input = padded.float()
-                    # print(input.shape)
                     output = self.model(input)
                     output = unpad(output, shape)
                     reversed = transformer.deaugment_mask(output)
@@ -253,10 +239,6 @@ class Network(object):
                                                                                             str(shape), str(
                             list(augmented_image.shape)), str(list(output.shape)), str(list(reversed.shape))))
                     outputs.append(reversed)
-
-                # mean(outputs)
-                # plt.show()
-
                 stacked = torch.stack(outputs)
                 output = torch.mean(stacked, dim=0)
                 outputs.append(output)
@@ -288,21 +270,12 @@ class Network(object):
                 out = np.squeeze(out)
 
                 def plot(outputs):
-                    # plt.imshow(label_to_colors(mask=torch.squeeze(target), colormap=self.color_map))
-                    # plt.show()
-                    # plt.figure()
-                    # f, ax = plt.subplots(1, 4, True, True)
                     list_out = []
                     for ind, x in enumerate(outputs):
                         mask = torch.argmax(x, dim=1)
                         mask = torch.squeeze(mask)
-                        # ax[ind] =
                         list_out.append(label_to_colors(mask=mask, colormap=self.color_map))
-
-                        # plt.imshow(label_to_colors(mask=mask, colormap=self.color_map))
-                        # plt.show()
                     list_out.append(label_to_colors(mask=torch.squeeze(target), colormap=self.color_map))
-                    # plt.show()
                     plot_list(list_out)
 
                 plot(outputs)
@@ -313,13 +286,6 @@ class Network(object):
 
 
 def plot_list(lsit):
-    import matplotlib.pyplot as plt
-    import numpy as np
-
-    # f, ax = plt.subplots(1, len(lsit), True, True)
-    # for ind, x in enumerate(lsit):
-    #    ax[ind].imshow(x)
-    # plt.show()
     import matplotlib.pyplot as plt
     import numpy as np
     print(len(lsit))
@@ -398,7 +364,6 @@ if __name__ == '__main__':
         ['/home/alexander/Dokumente/HBR2013/images/'],
         ['/home/alexander/Dokumente/HBR2013/masks/']
     )
-    print(c)
     map = load_image_map_from_file(
         '/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/image_map.json')
     from segmentation.dataset import base_line_transform
@@ -418,4 +383,3 @@ if __name__ == '__main__':
     trainer = Network(p_setting, color_map=map)
     for x in trainer.predict():
        print(x.shape)
-    #trainer.train()
