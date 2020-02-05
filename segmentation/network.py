@@ -70,8 +70,8 @@ def test(model, device, test_loader, criterion):
 
     logger.info('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.6f}%)\n'.format(
         test_loss, correct, len(test_loader.dataset),
-        100. * correct / total / len(test_loader.dataset)))
-    return 100. * correct / total / len(test_loader.dataset)
+        100. * correct / total))  #/ len(test_loader.dataset)))
+    return 100. * correct / total  #/ len(test_loader.dataset)
 
 
 def train(model, device, train_loader, optimizer, epoch, criterion, accumulation_steps=8, color_map=None):
@@ -229,7 +229,7 @@ class Network(object):
         # tta_model = tta.SegmentationTTAWrapper(self.model, tta.aliases.multiscale_transform(scales=[1.2]), merge_mode='mean')
         transforms = tta.Compose(
             [
-                # tta.HorizontalFlip(),
+                tta.HorizontalFlip(),
                 tta.Scale(scales=[1]),
             ]
         )
@@ -267,12 +267,8 @@ class Network(object):
                         stds = [0.229, 0.224, 0.225]
                         mask = torch.argmax(mask, dim=1)
                         mask = torch.squeeze(mask)
-                        # print(original.shape)
                         original = original.permute(0, 2, 3, 1)
-                        # print(original.shape)
                         original = torch.squeeze(original).cpu().numpy()
-                        # print(sm.encoders.get_preprocessing_params("resnet34"))
-                        # print(get_preprocessing_params(encoder_name, pretrained=pretrained))
                         original = original * stds
                         original = original + mean
                         original = original * 255
@@ -412,14 +408,14 @@ if __name__ == '__main__':
     dt = XMLDataset(a, map, transform=compose([base_line_transform()]), mask_generator=MaskGenerator(settings=settings))
     d_test = XMLDataset(b, map, transform=compose([base_line_transform()]),
                         mask_generator=MaskGenerator(settings=settings))
-    d_predict = MaskDataset(c, map, transform=compose([base_line_transform()]))
+    d_predict = MaskDataset(c, map, )#transform=compose([base_line_transform()]))
     from segmentation.settings import TrainSettings
 
-    setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=dt, VAL_DATASET=d_test, OUTPUT_PATH="model.torch",
-                            MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/model.torch')
+    setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=dt, VAL_DATASET=d_test, OUTPUT_PATH="model.torch3",
+                            MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/model_multi.torch')
     p_setting = PredictorSettings(CLASSES=len(map), PREDICT_DATASET=d_predict,
                                   MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/model.torch')
-    trainer = Network(setting, color_map=map)
-    # for x in trainer.predict():
-    #    print(x.shape)
-    trainer.train()
+    trainer = Network(p_setting, color_map=map)
+    for x in trainer.predict():
+       print(x.shape)
+    #trainer.train()
