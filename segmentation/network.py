@@ -228,7 +228,7 @@ class Network(object):
                 for transformer in transforms:
                     augmented_image = transformer.augment_image(data)
                     shape = list(augmented_image.shape)[2:]
-                    padded = pad(augmented_image, 32)
+                    padded = pad(augmented_image, 32)  ## 2**5
 
                     input = padded.float()
                     output = self.model(input)
@@ -255,11 +255,14 @@ class Network(object):
                         original = original + mean
                         original = original * 255
                         original = original.astype(int)
+                        extract_baselines(mask, original=original)
+
                         f, ax = plt.subplots(1, 3, True, True)
                         target = torch.squeeze(target)
                         ax[0].imshow(label_to_colors(mask=target, colormap=color_map))
                         ax[1].imshow(label_to_colors(mask=mask, colormap=color_map))
                         ax[2].imshow(original)
+                        ax[2].imshow(label_to_colors(mask=mask, colormap=color_map), cmap='jet', alpha=0.5)
 
                         plt.show()
 
@@ -283,6 +286,206 @@ class Network(object):
 
     def predict_single_image(self):
         pass
+
+
+def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_index=2, original=None):
+    # from skimage import measure
+    from scipy.ndimage.measurements import label
+
+    base_ind = np.where(image_map == base_line_index)
+    base_border_ind = np.where(image_map == base_line_border_index)
+
+    baseline = np.zeros(image_map.shape)
+    baseline_border = np.zeros(image_map.shape)
+    baseline[base_ind] = 1
+    baseline_border[base_border_ind] = 1
+    baseline_ccs, n_baseline_ccs = label(baseline)
+    t = list(range(n_baseline_ccs))
+
+    baseline_ccs = [np.where(baseline_ccs == x) for x in range(1, n_baseline_ccs + 1)]
+    baseline_border_ccs, n_baseline_border_ccs = label(baseline_border)
+    baseline_border_ccs = [np.where(baseline_border_ccs == x) for x in range(1, n_baseline_border_ccs + 1)]
+    print(n_baseline_ccs)
+    print(n_baseline_border_ccs)
+
+    class Cc_with_type(object):
+        def __init__(self, cc, type):
+            self.cc = cc
+            index_min = np.where(cc[1] == min(cc[1]))[0]
+
+            self.cc_left = (cc[0][index_min][0], cc[1][index_min][0])
+            index_max = np.where(cc[1] == max(cc[1]))[0]
+
+            self.cc_right = (cc[0][index_max][0], cc[1][index_max][0])
+            self.type = type
+
+        def __lt__(self, other):
+            return self.cc < other
+
+    baseline_ccs = [Cc_with_type(x, 'baseline') for x in baseline_ccs if len(x[0]) > 10]
+
+    baseline_border_ccs = [Cc_with_type(x, 'baseline_border') for x in baseline_border_ccs if len(x[0]) > 10]
+
+    all_ccs = baseline_ccs + baseline_border_ccs
+
+    def calculate_distance_matrix(ccs, length=50):
+        distance_matrix = np.zeros((len(ccs), len(ccs)))
+        vertical_distance = 10
+        for ind1, x in enumerate(ccs):
+            for ind2, y in enumerate(ccs):
+                if x is y:
+                    distance_matrix[ind1, ind2] = 0
+                else:
+                    distance = 0
+                    same_type = 1 if x.type == y.type else 100
+
+                    def left(x, y):
+                        return x.cc_left[1] > y.cc_right[1]
+
+                    def right(x, y):
+                        return x.cc_right[1] < y.cc_left[1]
+
+                    if left(x, y):
+                        distance = x.cc_left[1] - y.cc_right[1]
+                        v_distance = vertical_distance
+                        if distance < 1 / 5 * length:
+                            v_distance = vertical_distance / 2
+                        elif distance < length:
+                            v_distance = vertical_distance * 2 / 3
+                        if not abs(x.cc_left[0] - y.cc_right[0]) < v_distance:
+                            distance = distance + abs(x.cc_left[0] - y.cc_right[0]) * 5
+                    elif right(x, y):
+                        distance = y.cc_left[1] - x.cc_right[1]
+
+                        v_distance = vertical_distance
+                        if distance < 1 / 5 * length:
+                            v_distance = vertical_distance / 2
+                        elif distance < length:
+                            v_distance = vertical_distance * 2 / 3
+                        if not abs(x.cc_left[0] - y.cc_right[0]) < v_distance:
+                            if not abs(x.cc_right[0] - y.cc_left[0]) < v_distance:
+                                distance = distance + abs(y.cc_left[0] - x.cc_right[0]) * 5
+                    else:
+                        print('same object?')
+                        distance = 99999
+
+                    distance_matrix[ind1, ind2] = distance * same_type
+        return distance_matrix
+
+    matrix = calculate_distance_matrix(all_ccs)
+
+    import sys
+    import numpy
+    print(matrix)
+    from sklearn.cluster import DBSCAN
+    t = DBSCAN(eps=50, min_samples=1, metric="precomputed").fit(matrix)
+    debug_image = np.zeros(image_map.shape)
+    for ind, x in enumerate(all_ccs):
+        debug_image[x.cc] = t.labels_[ind]
+
+    ccs= []
+    for x in np.unique(t.labels_):
+        ind = np.where(t.labels_ == x)
+        line = []
+        for d in ind[0]:
+            line.append(all_ccs[d].cc)
+        ccs.append((np.concatenate([x[0] for x in line]), np.concatenate([x[1] for x in line])))
+    print(ccs)
+    ccs = [list(zip(x[1][0], x[1][1])) for x in ccs]
+    from itertools import chain
+    #ccs = [list(zip(z.cc[0], z.cc[1])) for x in ccs for z in x]
+
+   # print(ccs)
+    from typing import List
+    from collections import defaultdict
+    def normalize_connected_components(cc_list: List[List[int]]):
+        # Normalize the CCs (line segments), so that the height of each cc is normalized to one pixel
+        def normalize(point_list):
+            normalized_cc_list = []
+            for cc in point_list:
+                cc_dict = defaultdict(list)
+                for y, x in cc:
+                    cc_dict[x].append(y)
+                normalized_cc = []
+                #for key, value in cc_dict.items():
+                for key in sorted(cc_dict.keys()):
+                    value = cc_dict[key]
+                    normalized_cc.append([int(np.floor(np.mean(value) + 0.5)), key])
+                normalized_cc_list.append(normalized_cc)
+            return normalized_cc_list
+
+        return normalize(cc_list)
+    ccs = normalize_connected_components(ccs)
+
+
+    plt.imshow(original)
+    from PIL import Image, ImageDraw
+
+    im = Image.fromarray(np.uint8(original))
+    draw = ImageDraw.Draw(im)
+
+    for x in ccs:
+        t = list(chain.from_iterable(x))
+        print(t)
+        a = t[::-1]
+
+        #t = list(zip(*x))
+        #print(t)
+        draw.line(a, fill=(255,0,0))
+        pass
+    im.show()
+    from matplotlib import pyplot
+    import cycler
+    n = 15
+    color = pyplot.cm.rainbow(np.linspace(0, 1, n))
+    debug_image[debug_image == 0] = 255
+    plt.imshow(debug_image, cmap="gist_ncar")
+    plt.show()
+
+
+
+
+    #print(t.labels_)
+    #print("1")
+    '''
+    from typing import List
+    import math
+    def extract_baselines(all_ccs):
+
+        class Polyline(object):
+            def __init__(self, list_ccs):
+                self.polyline: List[np.array] = list_ccs
+
+            def __iter__(self):
+                for x in self.polyline:
+                    yield x
+
+        def left(x, y):
+            return x.cc_left[1] < y.cc_right[1]
+
+        def right(x, y):
+            return x.cc_right[1] > y.cc_left[1]
+
+        def get_nearest_cc(cc: Cc_with_type, ccs, comperator):
+            gl_distance = math.inf
+            vertical_distance = 10
+            nearest = None
+            for x in ccs:
+                if x is cc:
+                    continue
+                if comperator(cc, x):
+                    if abs(cc.cc_left[0] - cc.cc_right[0]) < vertical_distance:
+                      distance = abs(cc.cc_left[1] - x.cc_right[1])
+                      if distance < gl_distance:
+                        gl_distance = distance
+                        nearest = x
+            return nearest, gl_distance
+
+        while True:
+            for ind, x in enumerate(all_ccs):
+                left_cc = get_nearest_cc(x, all_ccs, left)
+                right_cc = get_nearest_cc(x, all_ccs, right)
+    '''
 
 
 def plot_list(lsit):
@@ -373,7 +576,7 @@ if __name__ == '__main__':
     dt = XMLDataset(a, map, transform=compose([base_line_transform()]), mask_generator=MaskGenerator(settings=settings))
     d_test = XMLDataset(b, map, transform=compose([base_line_transform()]),
                         mask_generator=MaskGenerator(settings=settings))
-    d_predict = MaskDataset(c, map, )#transform=compose([base_line_transform()]))
+    d_predict = MaskDataset(c, map, )  # transform=compose([base_line_transform()]))
     from segmentation.settings import TrainSettings
 
     setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=dt, VAL_DATASET=d_test, OUTPUT_PATH="model.torch3",
@@ -382,4 +585,4 @@ if __name__ == '__main__':
                                   MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/model.torch')
     trainer = Network(p_setting, color_map=map)
     for x in trainer.predict():
-       print(x.shape)
+        print(x.shape)
