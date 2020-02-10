@@ -305,8 +305,8 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
     baseline_ccs = [np.where(baseline_ccs == x) for x in range(1, n_baseline_ccs + 1)]
     baseline_border_ccs, n_baseline_border_ccs = label(baseline_border)
     baseline_border_ccs = [np.where(baseline_border_ccs == x) for x in range(1, n_baseline_border_ccs + 1)]
-    print(n_baseline_ccs)
-    print(n_baseline_border_ccs)
+    #print(n_baseline_ccs)
+    #print(n_baseline_border_ccs)
 
     class Cc_with_type(object):
         def __init__(self, cc, type):
@@ -328,7 +328,7 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
 
     all_ccs = baseline_ccs + baseline_border_ccs
 
-    def calculate_distance_matrix(ccs, length=50):
+    def calculate_distance_matrix(ccs, length=100):
         distance_matrix = np.zeros((len(ccs), len(ccs)))
         vertical_distance = 10
         for ind1, x in enumerate(ccs):
@@ -378,7 +378,7 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
     import numpy
     print(matrix)
     from sklearn.cluster import DBSCAN
-    t = DBSCAN(eps=50, min_samples=1, metric="precomputed").fit(matrix)
+    t = DBSCAN(eps=100, min_samples=1, metric="precomputed").fit(matrix)
     debug_image = np.zeros(image_map.shape)
     for ind, x in enumerate(all_ccs):
         debug_image[x.cc] = t.labels_[ind]
@@ -388,10 +388,13 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
         ind = np.where(t.labels_ == x)
         line = []
         for d in ind[0]:
-            line.append(all_ccs[d].cc)
-        ccs.append((np.concatenate([x[0] for x in line]), np.concatenate([x[1] for x in line])))
-    print(ccs)
-    ccs = [list(zip(x[1][0], x[1][1])) for x in ccs]
+            if all_ccs[d].type == 'baseline':
+                line.append(all_ccs[d].cc)
+        if len(line) > 0:
+            ccs.append((np.concatenate([x[0] for x in line]), np.concatenate([x[1] for x in line])))
+
+
+    ccs = [list(zip(x[0], x[1])) for x in ccs]
     from itertools import chain
     #ccs = [list(zip(z.cc[0], z.cc[1])) for x in ccs for z in x]
 
