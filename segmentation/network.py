@@ -359,7 +359,20 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
                         elif distance < length:
                             v_distance = vertical_distance * 2 / 3
                         if not abs(x.cc_left[0] - y.cc_right[0]) < v_distance:
-                            distance = distance + abs(x.cc_left[0] - y.cc_right[0]) * 5
+                            distance = (distance + abs(x.cc_left[0] - y.cc_right[0]) * 5)
+                        #if abs(x.cc_left[0] - y.cc_right[0]) < v_distance:
+                        point_c = y.cc_right
+                        point_n = x.cc_left
+
+                        x_points = np.arange(start=point_c[1], stop=point_n[1]+1)
+                        y_points = np.interp(x_points, [point_c[1], point_n[1]], [point_c[0], point_n[0]]).astype(
+                            int)
+                        indexes = (y_points, x_points)
+
+                        blackness = np.sum(baseline_border[indexes])
+                        #print('left' + str(blackness))
+                        distance = distance * (blackness*5000 + 1)
+
                     elif right(x, y):
                         distance = y.cc_left[1] - x.cc_right[1]
 
@@ -368,9 +381,22 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
                             v_distance = vertical_distance / 2
                         elif distance < length:
                             v_distance = vertical_distance * 2 / 3
-                        if not abs(x.cc_left[0] - y.cc_right[0]) < v_distance:
-                            if not abs(x.cc_right[0] - y.cc_left[0]) < v_distance:
-                                distance = distance + abs(y.cc_left[0] - x.cc_right[0]) * 5
+                        if not abs(x.cc_right[0] - y.cc_left[0]) < v_distance:
+                            distance = (distance + abs(y.cc_left[0] - x.cc_right[0]) * 5)
+
+                        #if abs(x.cc_right[0] - y.cc_left[0]) < v_distance:
+                        point_c = x.cc_right
+                        point_n = y.cc_left
+
+                        x_points = np.arange(start=point_c[1], stop=point_n[1]+1)
+                        y_points = np.interp(x_points, [point_c[1], point_n[1]],
+                                             [point_c[0], point_n[0]]).astype(
+                            int)
+                        indexes = (y_points, x_points)
+
+                        blackness = np.sum(baseline_border[indexes])
+                        #print('right' + str(blackness))
+                        distance = distance * (blackness*5000 + 1)
                     else:
                         # print('same object?')
                         distance = 99999
@@ -413,9 +439,10 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
                 indexes = (y_points, x_points)
 
                 blackness = np.sum(baseline_border[indexes])
+                blackness = 0
                 if blackness > 0:
                     splits.append(ind)
-                print(blackness)
+                #print(blackness)
                 # baseline_border[x_points, y_points]
                 cc_c = current.cc
                 cc_n = next.cc
