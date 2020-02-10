@@ -1,4 +1,11 @@
 import numpy as np
+import itertools
+
+
+def pairwise(iterable):
+    a, b = itertools.tee(iterable)
+    next(b, None)
+    return zip(a, b)
 
 
 def gray_to_rgb(img):

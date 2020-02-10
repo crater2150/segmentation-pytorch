@@ -305,18 +305,24 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
     baseline_ccs = [np.where(baseline_ccs == x) for x in range(1, n_baseline_ccs + 1)]
     baseline_border_ccs, n_baseline_border_ccs = label(baseline_border)
     baseline_border_ccs = [np.where(baseline_border_ccs == x) for x in range(1, n_baseline_border_ccs + 1)]
-    #print(n_baseline_ccs)
-    #print(n_baseline_border_ccs)
+
+    # print(n_baseline_ccs)
+    # print(n_baseline_border_ccs)
 
     class Cc_with_type(object):
         def __init__(self, cc, type):
             self.cc = cc
             index_min = np.where(cc[1] == min(cc[1]))[0]
-
-            self.cc_left = (cc[0][index_min][0], cc[1][index_min][0])
             index_max = np.where(cc[1] == max(cc[1]))[0]
 
-            self.cc_right = (cc[0][index_max][0], cc[1][index_max][0])
+            if type == 'baseline':
+                self.cc_left = (cc[0][index_min][0], cc[1][index_min][0])
+                self.cc_right = (cc[0][index_max][0], cc[1][index_max][0])
+
+            else:
+                self.cc_left = (np.mean(cc[0]), cc[1][index_min][0])
+                self.cc_right = (np.mean(cc[0]), cc[1][index_max][0])
+
             self.type = type
 
         def __lt__(self, other):
@@ -328,7 +334,7 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
 
     all_ccs = baseline_ccs + baseline_border_ccs
 
-    def calculate_distance_matrix(ccs, length=100):
+    def calculate_distance_matrix(ccs, length=50):
         distance_matrix = np.zeros((len(ccs), len(ccs)))
         vertical_distance = 10
         for ind1, x in enumerate(ccs):
@@ -337,7 +343,7 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
                     distance_matrix[ind1, ind2] = 0
                 else:
                     distance = 0
-                    same_type = 1 if x.type == y.type else 100
+                    same_type = 1 if x.type == y.type else 1000
 
                     def left(x, y):
                         return x.cc_left[1] > y.cc_right[1]
@@ -366,7 +372,7 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
                             if not abs(x.cc_right[0] - y.cc_left[0]) < v_distance:
                                 distance = distance + abs(y.cc_left[0] - x.cc_right[0]) * 5
                     else:
-                        print('same object?')
+                        # print('same object?')
                         distance = 99999
 
                     distance_matrix[ind1, ind2] = distance * same_type
@@ -376,32 +382,67 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
 
     import sys
     import numpy
-    print(matrix)
+    # print(matrix)
     from sklearn.cluster import DBSCAN
+    from segmentation.util import pairwise
     t = DBSCAN(eps=100, min_samples=1, metric="precomputed").fit(matrix)
     debug_image = np.zeros(image_map.shape)
     for ind, x in enumerate(all_ccs):
         debug_image[x.cc] = t.labels_[ind]
 
-    ccs= []
+    ccs = []
     for x in np.unique(t.labels_):
         ind = np.where(t.labels_ == x)
         line = []
         for d in ind[0]:
             if all_ccs[d].type == 'baseline':
-                line.append(all_ccs[d].cc)
-        if len(line) > 0:
-            ccs.append((np.concatenate([x[0] for x in line]), np.concatenate([x[1] for x in line])))
+                line.append(all_ccs[d])
 
+        lines = []
+        splits = []
+        line.sort(key=lambda x: np.mean(x.cc[1]))
+        # print('line')
+
+        if len(line) > 1:
+            for ind, (current, next) in enumerate(pairwise(line)):
+                point_c = current.cc_right
+                point_n = next.cc_left
+
+                x_points = np.arange(start=point_c[1], stop=point_n[1])
+                y_points = np.interp(x_points, [point_c[1], point_n[1]], [point_c[0], point_n[0]]).astype(int)
+                indexes = (y_points, x_points)
+
+                blackness = np.sum(baseline_border[indexes])
+                if blackness > 0:
+                    splits.append(ind)
+                print(blackness)
+                # baseline_border[x_points, y_points]
+                cc_c = current.cc
+                cc_n = next.cc
+
+                # np.interpolate()
+                # print(x.cc[1][0])
+            splits.append(len(line))
+            prev = 0
+            for x in splits:
+                splitted_line = line[prev:x + 1]
+                prev = x + 1
+                ccs.append((np.concatenate([x.cc[0] for x in splitted_line]),
+                            np.concatenate([x.cc[1] for x in splitted_line])))
+
+        else:
+            if len(line) > 0:
+                ccs.append((np.concatenate([x.cc[0] for x in line]), np.concatenate([x.cc[1] for x in line])))
+        # print('lineend')
 
     ccs = [list(zip(x[0], x[1])) for x in ccs]
     from itertools import chain
-    #ccs = [list(zip(z.cc[0], z.cc[1])) for x in ccs for z in x]
+    # ccs = [list(zip(z.cc[0], z.cc[1])) for x in ccs for z in x]
 
-   # print(ccs)
-    from typing import List
+    # print(ccs)
+    from typing import List, Tuple
     from collections import defaultdict
-    def normalize_connected_components(cc_list: List[List[int]]):
+    def normalize_connected_components(cc_list: List[List[Tuple[int, int]]]):
         # Normalize the CCs (line segments), so that the height of each cc is normalized to one pixel
         def normalize(point_list):
             normalized_cc_list = []
@@ -410,7 +451,7 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
                 for y, x in cc:
                     cc_dict[x].append(y)
                 normalized_cc = []
-                #for key, value in cc_dict.items():
+                # for key, value in cc_dict.items():
                 for key in sorted(cc_dict.keys()):
                     value = cc_dict[key]
                     normalized_cc.append([int(np.floor(np.mean(value) + 0.5)), key])
@@ -418,8 +459,8 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
             return normalized_cc_list
 
         return normalize(cc_list)
-    ccs = normalize_connected_components(ccs)
 
+    ccs = normalize_connected_components(ccs)
 
     plt.imshow(original)
     from PIL import Image, ImageDraw
@@ -429,12 +470,12 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
 
     for x in ccs:
         t = list(chain.from_iterable(x))
-        print(t)
+        # print(t)
         a = t[::-1]
 
-        #t = list(zip(*x))
-        #print(t)
-        draw.line(a, fill=(255,0,0))
+        # t = list(zip(*x))
+        # print(t)
+        draw.line(a, fill=(255, 0, 0))
         pass
     im.show()
     from matplotlib import pyplot
@@ -445,11 +486,8 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
     plt.imshow(debug_image, cmap="gist_ncar")
     plt.show()
 
-
-
-
-    #print(t.labels_)
-    #print("1")
+    # print(t.labels_)
+    # print("1")
     '''
     from typing import List
     import math
@@ -494,7 +532,7 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
 def plot_list(lsit):
     import matplotlib.pyplot as plt
     import numpy as np
-    print(len(lsit))
+    # print(len(lsit))
     images_per_row = 4
     rows = int(np.ceil(len(lsit) / images_per_row))
     f, ax = plt.subplots(rows, images_per_row, True, True)
