@@ -423,7 +423,7 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
         for d in ind[0]:
             if all_ccs[d].type == 'baseline':
                 line.append(all_ccs[d])
-
+        '''
         lines = []
         splits = []
         line.sort(key=lambda x: np.mean(x.cc[1]))
@@ -443,23 +443,23 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
                 if blackness > 0:
                     splits.append(ind)
                 #print(blackness)
-                # baseline_border[x_points, y_points]
+                 baseline_border[x_points, y_points]
                 cc_c = current.cc
                 cc_n = next.cc
 
                 # np.interpolate()
                 # print(x.cc[1][0])
-            splits.append(len(line))
+            #splits.append(len(line))
             prev = 0
             for x in splits:
                 splitted_line = line[prev:x + 1]
                 prev = x + 1
                 ccs.append((np.concatenate([x.cc[0] for x in splitted_line]),
                             np.concatenate([x.cc[1] for x in splitted_line])))
+        '''
 
-        else:
-            if len(line) > 0:
-                ccs.append((np.concatenate([x.cc[0] for x in line]), np.concatenate([x.cc[1] for x in line])))
+        if len(line) > 0:
+            ccs.append((np.concatenate([x.cc[0] for x in line]), np.concatenate([x.cc[1] for x in line])))
         # print('lineend')
 
     ccs = [list(zip(x[0], x[1])) for x in ccs]
