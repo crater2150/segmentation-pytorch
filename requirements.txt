@@ -1,0 +1,7 @@
+git+https://github.com/qubvel/segmentation_models.pytorch.git#egg=segmentation_models_pytorch
+torch
+git+https://github.com/Gawajn/pagexml_to_mask.git#egg=pagexml_to_mask
+torchvision
+pillow
+numpy
+ttach
