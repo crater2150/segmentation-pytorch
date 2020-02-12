@@ -300,14 +300,10 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
     baseline[base_ind] = 1
     baseline_border[base_border_ind] = 1
     baseline_ccs, n_baseline_ccs = label(baseline)
-    t = list(range(n_baseline_ccs))
 
     baseline_ccs = [np.where(baseline_ccs == x) for x in range(1, n_baseline_ccs + 1)]
     baseline_border_ccs, n_baseline_border_ccs = label(baseline_border)
     baseline_border_ccs = [np.where(baseline_border_ccs == x) for x in range(1, n_baseline_border_ccs + 1)]
-
-    # print(n_baseline_ccs)
-    # print(n_baseline_border_ccs)
 
     class Cc_with_type(object):
         def __init__(self, cc, type):
@@ -333,6 +329,7 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
     baseline_border_ccs = [Cc_with_type(x, 'baseline_border') for x in baseline_border_ccs if len(x[0]) > 10]
 
     all_ccs = baseline_ccs + baseline_border_ccs
+    from segmentation.util import pairwise, angle_between, angle_to
 
     def calculate_distance_matrix(ccs, length=50):
         distance_matrix = np.zeros((len(ccs), len(ccs)))
@@ -350,55 +347,44 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
 
                     def right(x, y):
                         return x.cc_right[1] < y.cc_left[1]
-
+                    ANGLE = 5
                     if left(x, y):
-                        distance = x.cc_left[1] - y.cc_right[1]
-                        v_distance = vertical_distance
-                        if distance < 1 / 5 * length:
-                            v_distance = vertical_distance / 2
-                        elif distance < length:
-                            v_distance = vertical_distance * 2 / 3
-                        if not abs(x.cc_left[0] - y.cc_right[0]) < v_distance:
-                            distance = (distance + abs(x.cc_left[0] - y.cc_right[0]) * 5)
-                        #if abs(x.cc_left[0] - y.cc_right[0]) < v_distance:
-                        point_c = y.cc_right
-                        point_n = x.cc_left
+                        angle = angle_to(np.array(y.cc_right), np.array(x.cc_left))
+                        if ANGLE < angle < (360 - ANGLE):
+                            distance = 99999
+                        else:
+                            distance = x.cc_left[1] - y.cc_right[1]
+                            point_c = y.cc_right
+                            point_n = x.cc_left
 
-                        x_points = np.arange(start=point_c[1], stop=point_n[1]+1)
-                        y_points = np.interp(x_points, [point_c[1], point_n[1]], [point_c[0], point_n[0]]).astype(
-                            int)
-                        indexes = (y_points, x_points)
+                            x_points = np.arange(start=point_c[1], stop=point_n[1]+1)
+                            y_points = np.interp(x_points, [point_c[1], point_n[1]], [point_c[0], point_n[0]]).astype(
+                                int)
+                            indexes = (y_points, x_points)
 
-                        blackness = np.sum(baseline_border[indexes])
-                        #print('left' + str(blackness))
-                        distance = distance * (blackness*5000 + 1)
+                            blackness = np.sum(baseline_border[indexes])
+                            #print('left' + str(blackness))
+                            distance = distance * (blackness*5000 + 1)
 
                     elif right(x, y):
-                        distance = y.cc_left[1] - x.cc_right[1]
+                        angle = angle_to(np.array(x.cc_right), np.array(y.cc_left))
+                        if ANGLE < angle < (360 - ANGLE):
+                            distance = 99999
+                        else:
+                            distance = y.cc_left[1] - x.cc_right[1]
 
-                        v_distance = vertical_distance
-                        if distance < 1 / 5 * length:
-                            v_distance = vertical_distance / 2
-                        elif distance < length:
-                            v_distance = vertical_distance * 2 / 3
-                        if not abs(x.cc_right[0] - y.cc_left[0]) < v_distance:
-                            distance = (distance + abs(y.cc_left[0] - x.cc_right[0]) * 5)
+                            point_c = x.cc_right
+                            point_n = y.cc_left
 
-                        #if abs(x.cc_right[0] - y.cc_left[0]) < v_distance:
-                        point_c = x.cc_right
-                        point_n = y.cc_left
+                            x_points = np.arange(start=point_c[1], stop=point_n[1]+1)
+                            y_points = np.interp(x_points, [point_c[1], point_n[1]],
+                                                 [point_c[0], point_n[0]]).astype(
+                                int)
+                            indexes = (y_points, x_points)
 
-                        x_points = np.arange(start=point_c[1], stop=point_n[1]+1)
-                        y_points = np.interp(x_points, [point_c[1], point_n[1]],
-                                             [point_c[0], point_n[0]]).astype(
-                            int)
-                        indexes = (y_points, x_points)
-
-                        blackness = np.sum(baseline_border[indexes])
-                        #print('right' + str(blackness))
-                        distance = distance * (blackness*5000 + 1)
+                            blackness = np.sum(baseline_border[indexes])
+                            distance = distance * (blackness*5000 + 1)
                     else:
-                        # print('same object?')
                         distance = 99999
 
                     distance_matrix[ind1, ind2] = distance * same_type
@@ -406,11 +392,10 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
 
     matrix = calculate_distance_matrix(all_ccs)
 
-    import sys
-    import numpy
-    # print(matrix)
     from sklearn.cluster import DBSCAN
-    from segmentation.util import pairwise
+    if np.sum(matrix) == 0:
+        print("Empty Image")
+        return
     t = DBSCAN(eps=100, min_samples=1, metric="precomputed").fit(matrix)
     debug_image = np.zeros(image_map.shape)
     for ind, x in enumerate(all_ccs):
@@ -423,50 +408,11 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
         for d in ind[0]:
             if all_ccs[d].type == 'baseline':
                 line.append(all_ccs[d])
-        '''
-        lines = []
-        splits = []
-        line.sort(key=lambda x: np.mean(x.cc[1]))
-        # print('line')
-
-        if len(line) > 1:
-            for ind, (current, next) in enumerate(pairwise(line)):
-                point_c = current.cc_right
-                point_n = next.cc_left
-
-                x_points = np.arange(start=point_c[1], stop=point_n[1])
-                y_points = np.interp(x_points, [point_c[1], point_n[1]], [point_c[0], point_n[0]]).astype(int)
-                indexes = (y_points, x_points)
-
-                blackness = np.sum(baseline_border[indexes])
-                blackness = 0
-                if blackness > 0:
-                    splits.append(ind)
-                #print(blackness)
-                 baseline_border[x_points, y_points]
-                cc_c = current.cc
-                cc_n = next.cc
-
-                # np.interpolate()
-                # print(x.cc[1][0])
-            #splits.append(len(line))
-            prev = 0
-            for x in splits:
-                splitted_line = line[prev:x + 1]
-                prev = x + 1
-                ccs.append((np.concatenate([x.cc[0] for x in splitted_line]),
-                            np.concatenate([x.cc[1] for x in splitted_line])))
-        '''
-
         if len(line) > 0:
             ccs.append((np.concatenate([x.cc[0] for x in line]), np.concatenate([x.cc[1] for x in line])))
-        # print('lineend')
 
     ccs = [list(zip(x[0], x[1])) for x in ccs]
     from itertools import chain
-    # ccs = [list(zip(z.cc[0], z.cc[1])) for x in ccs for z in x]
-
-    # print(ccs)
     from typing import List, Tuple
     from collections import defaultdict
     def normalize_connected_components(cc_list: List[List[Tuple[int, int]]]):
@@ -513,47 +459,6 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
     plt.imshow(debug_image, cmap="gist_ncar")
     plt.show()
 
-    # print(t.labels_)
-    # print("1")
-    '''
-    from typing import List
-    import math
-    def extract_baselines(all_ccs):
-
-        class Polyline(object):
-            def __init__(self, list_ccs):
-                self.polyline: List[np.array] = list_ccs
-
-            def __iter__(self):
-                for x in self.polyline:
-                    yield x
-
-        def left(x, y):
-            return x.cc_left[1] < y.cc_right[1]
-
-        def right(x, y):
-            return x.cc_right[1] > y.cc_left[1]
-
-        def get_nearest_cc(cc: Cc_with_type, ccs, comperator):
-            gl_distance = math.inf
-            vertical_distance = 10
-            nearest = None
-            for x in ccs:
-                if x is cc:
-                    continue
-                if comperator(cc, x):
-                    if abs(cc.cc_left[0] - cc.cc_right[0]) < vertical_distance:
-                      distance = abs(cc.cc_left[1] - x.cc_right[1])
-                      if distance < gl_distance:
-                        gl_distance = distance
-                        nearest = x
-            return nearest, gl_distance
-
-        while True:
-            for ind, x in enumerate(all_ccs):
-                left_cc = get_nearest_cc(x, all_ccs, left)
-                right_cc = get_nearest_cc(x, all_ccs, right)
-    '''
 
 
 def plot_list(lsit):
@@ -635,6 +540,14 @@ if __name__ == '__main__':
         ['/home/alexander/Dokumente/HBR2013/images/'],
         ['/home/alexander/Dokumente/HBR2013/masks/']
     )
+    d = dirs_to_pandaframe(
+        ['/home/alexander/Dokumente/dataset/test/image/'],
+        ['/home/alexander/Dokumente/dataset/test/mask/']
+    )
+    e = dirs_to_pandaframe(
+        ['/mnt/sshfs/scratch/Datensets_Bildverarbeitung/page_segmentation/OCR-D/images/'],
+        ['/mnt/sshfs/scratch/Datensets_Bildverarbeitung/page_segmentation/OCR-D/images/']
+    )
     map = load_image_map_from_file(
         '/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/image_map.json')
     from segmentation.dataset import base_line_transform
@@ -644,7 +557,7 @@ if __name__ == '__main__':
     dt = XMLDataset(a, map, transform=compose([base_line_transform()]), mask_generator=MaskGenerator(settings=settings))
     d_test = XMLDataset(b, map, transform=compose([base_line_transform()]),
                         mask_generator=MaskGenerator(settings=settings))
-    d_predict = MaskDataset(c, map, )  # transform=compose([base_line_transform()]))
+    d_predict = MaskDataset(e, map, )  # transform=compose([base_line_transform()]))
     from segmentation.settings import TrainSettings
 
     setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=dt, VAL_DATASET=d_test, OUTPUT_PATH="model.torch3",
