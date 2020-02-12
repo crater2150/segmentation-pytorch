@@ -24,6 +24,39 @@ logger.setLevel(logging.DEBUG)
 logger.addHandler(console_logger)
 
 
+class TrainProgressCallback:
+    def init(self, total_iters, early_stopping_iters):
+        pass
+
+    def update_loss(self, batch: int, loss: float, acc: float):
+        pass
+
+    def next_best(self, epoch, acc, n_best):
+        pass
+
+
+class TrainProgressCallbackWrapper:
+
+    def __init__(self,
+                 n_iters_per_epoch: int,
+                 train_callback: TrainProgressCallback):
+        super().__init__()
+        self.train_callback = train_callback
+        self.n_iters_per_epoch = n_iters_per_epoch
+        self.epoch = 0
+        self.iter = 0
+
+    def on_batch_end(self, batch, loss, acc, logs=None):
+        self.iter = batch + self.epoch * self.n_iters_per_epoch
+        self.train_callback.update_loss(self.iter,
+                                        loss=loss,
+                                        acc=acc)
+
+    def on_epoch_end(self, epoch, acc, wait=0):
+        self.epoch = epoch + 1
+        self.train_callback.next_best(self.iter, acc, wait)
+
+
 def pad(tensor, factor=32):
     shape = list(tensor.shape)[2:]
     h_dif = factor - (shape[0] % factor)
@@ -65,14 +98,16 @@ def test(model, device, test_loader, criterion):
 
     test_loss /= len(test_loader.dataset)
 
-    logger.info('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.6f}%)\n'.format(
-        test_loss, correct, len(test_loader.dataset),
+    logger.info('\nTest set: Average loss: {:.4f}, Length of Test Set: {} ({:.6f}%)\n'.format(
+        test_loss, len(test_loader.dataset),
         100. * correct / total))
+
     return 100. * correct / total
 
 
-def train(model, device, train_loader, optimizer, epoch, criterion, accumulation_steps=8, color_map=None):
-    def debug(mask, target, original, color_map):
+def train(model, device, train_loader, optimizer, epoch, criterion, accumulation_steps=8, color_map=None,
+          callback: TrainProgressCallbackWrapper = None, debug=False):
+    def debug_img(mask, target, original, color_map):
         if color_map is not None:
             from matplotlib import pyplot as plt
             mean = [0.485, 0.456, 0.406]
@@ -96,6 +131,7 @@ def train(model, device, train_loader, optimizer, epoch, criterion, accumulation
     model.train()
     total_train = 0
     correct_train = 0
+
     for batch_idx, (data, target) in enumerate(train_loader):
 
         data, target = data.to(device), target.to(device, dtype=torch.int64)
@@ -122,7 +158,81 @@ def train(model, device, train_loader, optimizer, epoch, criterion, accumulation
                                                                                           loss.item(),
                                                                                           train_accuracy)),
         if (batch_idx + 1) % accumulation_steps == 0:  # Wait for several backward steps
-            debug(output, target, data, color_map)
+            debug_img(output, target, data, color_map)
+            if isinstance(optimizer, Iterable):  # Now we can do an optimizer step
+                for opt in optimizer:
+                    opt.step()
+            else:
+                optimizer.step()
+            model.zero_grad()  # Reset gradients tensors
+        if callback:
+            callback.on_batch_end(batch_idx, loss=loss.item(), acc=train_accuracy)
+        gc.collect()
+
+
+def train_unlabeled(model, device, train_loader, unlabeled_loader,
+                    optimizer, epoch, criterion, accumulation_steps=8,
+                    color_map=None, train_step=50, alpha_factor=3, epoch_conv=15, debug=False):
+    def alpha_weight(epoch):
+        return min((epoch / epoch_conv) * alpha_factor, alpha_factor)
+
+    def debug(mask, target, original, color_map):
+        if color_map is not None:
+            from matplotlib import pyplot as plt
+            mean = [0.485, 0.456, 0.406]
+            stds = [0.229, 0.224, 0.225]
+            mask = torch.argmax(mask, dim=1)
+            mask = torch.squeeze(mask)
+            original = original.permute(0, 2, 3, 1)
+            original = torch.squeeze(original).cpu().numpy()
+            original = original * stds
+            original = original + mean
+            original = original * 255
+            original = original.astype(int)
+            f, ax = plt.subplots(1, 3, True, True)
+            target = torch.squeeze(target)
+            ax[0].imshow(label_to_colors(mask=target, colormap=color_map))
+            ax[1].imshow(label_to_colors(mask=mask, colormap=color_map))
+            ax[2].imshow(original)
+
+            plt.show()
+
+    model.train()
+    total_train = 0
+    correct_train = 0
+    for batch_idx, (data, target) in enumerate(unlabeled_loader):
+        data = data.to(device)
+        shape = list(data.shape)[2:]
+        padded = pad(data, 32)
+
+        input = padded.float()
+        model.eval()
+        with torch.no_grad():
+            output_unlabeled = model(input)
+            output_unlabeled = unpad(output_unlabeled, shape)
+            pseudo_labeled = torch.argmax(output_unlabeled, dim=1)
+
+        model.train()
+        output = model(input)
+        output = unpad(output, shape)
+        if debug:
+            debug(output, pseudo_labeled, data, color_map)
+        loss = criterion(output, pseudo_labeled)
+        loss = (loss * alpha_weight(epoch)) / accumulation_steps
+        loss.backward()
+        _, predicted = torch.max(output.data, 1)
+        total_train += target.nelement()
+        correct_train += predicted.eq(pseudo_labeled.data).sum().item()
+        train_accuracy = 100 * correct_train / total_train
+        logger.info(
+            '\r Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tAccuracy: {:.6f}'.format(epoch, batch_idx * len(data),
+                                                                                          len(unlabeled_loader.dataset),
+                                                                                          100. * batch_idx / len(
+                                                                                              unlabeled_loader),
+                                                                                          loss.item(),
+                                                                                          train_accuracy)),
+        if (batch_idx + 1) % accumulation_steps == 0:  # Wait for several backward steps
+            # debug(output, target, data, color_map)
             if isinstance(optimizer, Iterable):  # Now we can do an optimizer step
                 for opt in optimizer:
                     opt.step()
@@ -130,6 +240,12 @@ def train(model, device, train_loader, optimizer, epoch, criterion, accumulation
                 optimizer.step()
             model.zero_grad()  # Reset gradients tensors
         gc.collect()
+
+        if batch_idx + 1 % train_step == 0:  # used as correction with real data
+            print('\n')
+            train(model=model, device=device, optimizer=optimizer, train_loader=train_loader,
+                  epoch=epoch, criterion=criterion, accumulation_steps=accumulation_steps, color_map=color_map)
+    pass
 
 
 def get_model(architecture, kwargs):
@@ -140,20 +256,38 @@ def get_model(architecture, kwargs):
 class Network(object):
 
     def __init__(self, settings: Union[TrainSettings, PredictorSettings], color_map=None):
-        self.settings = settings
+        from segmentation.modules import Architecture
 
+        self.settings = settings
+        architecture: Architecture = None
+        encoder: str = None
+        classes: int = None
         if isinstance(settings, PredictorSettings):
-            self.settings.PREDICT_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(self.settings.ENCODER)
+            import os
+            with open(str(os.path.splitext(settings.MODEL_PATH)[0]) + '.meta', 'r') as f:
+                for x in f.readlines():
+                    x = x.strip('\n')
+                    if x.startswith('Encoder'):
+                        encoder = x.split(" ")[1]
+                    if x.startswith('Architecture'):
+                        architecture = Architecture(x.split(" ")[1])
+                    if x.startswith('Classes'):
+                        classes = int(x.split(" ")[1])
+            if self.settings.PREDICT_DATASET is not None:
+                self.settings.PREDICT_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(encoder)
         elif isinstance(settings, TrainSettings):
+            encoder = self.settings.ENCODER
+            architecture = self.settings.ARCHITECTURE
+            classes = self.settings.CLASSES
             self.settings.TRAIN_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(self.settings.ENCODER)
             self.settings.VAL_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(self.settings.ENCODER)
-        device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = torch.device(device)
-        self.model_params = self.settings.ARCHITECTURE.get_architecture_params()
-        self.model_params['classes'] = self.settings.CLASSES
-        self.model_params['decoder_use_batchnorm'] = False
-        self.model_params['encoder_name'] = self.settings.ENCODER
-        self.model = get_model(self.settings.ARCHITECTURE, self.model_params)
+        self.model_params = architecture.get_architecture_params()
+        self.model_params['classes'] = classes
+        # self.model_params['decoder_use_batchnorm'] = False
+        self.model_params['encoder_name'] = encoder
+        self.model = get_model(architecture, self.model_params)
         if self.settings.MODEL_PATH:
             try:
                 self.model.load_state_dict(torch.load(self.settings.MODEL_PATH, map_location=torch.device(device)))
@@ -162,13 +296,17 @@ class Network(object):
 
         self.color_map = color_map  # Optional for visualisation of mask data
         self.model.to(self.device)
+        self.encoder = encoder
 
-    def train(self):
+    def train(self, callback=None):
 
         if not isinstance(self.settings, TrainSettings):
             logger.warning('Settings is of type: {}. Pass settings to network object of type Train to train'.format(
                 str(type(self.settings))))
             return
+
+        if callback:
+            callback = TrainProgressCallbackWrapper(len(self.settings.TRAIN_DATASET), callback)
 
         criterion = nn.CrossEntropyLoss()
         self.model.float()
@@ -185,23 +323,52 @@ class Network(object):
                                        shuffle=True, num_workers=self.settings.PROCESSES)
         val_loader = data.DataLoader(dataset=self.settings.VAL_DATASET, batch_size=self.settings.VAL_BATCH_SIZE,
                                      shuffle=False)
+        pseudo_loader = None
+        if self.settings.PSEUDO_DATASET is not None:
+            pseudo_loader = data.DataLoader(dataset=self.settings.PSEUDO_DATASET,
+                                            batch_size=self.settings.TRAIN_BATCH_SIZE,
+                                            shuffle=True)
         highest_accuracy = 0
         logger.info(str(self.model) + "\n")
         logger.info(str(self.model_params) + "\n")
         logger.info('Training started ...\n"')
         for epoch in range(1, self.settings.EPOCHS):
-            train(self.model, self.device, train_loader, optimizer, epoch, criterion,
-                  accumulation_steps=self.settings.BATCH_ACCUMULATION,
-                  color_map=self.color_map)
+            if self.settings.PSEUDO_DATASET is not None:
+                train_unlabeled(self.model, device=self.device, train_loader=train_loader,
+                                unlabeled_loader=pseudo_loader,
+                                optimizer=optimizer, epoch=epoch, criterion=criterion,
+                                accumulation_steps=self.settings.BATCH_ACCUMULATION,
+                                color_map=self.color_map, train_step=50, alpha_factor=3, epoch_conv=15)
+            else:
+                train(self.model, self.device, train_loader, optimizer, epoch, criterion,
+                      accumulation_steps=self.settings.BATCH_ACCUMULATION,
+                      color_map=self.color_map,
+                      callback=callback)
             accuracy = test(self.model, self.device, val_loader, criterion=criterion)
             if self.settings.OUTPUT_PATH is not None:
+
                 if accuracy > highest_accuracy:
-                    logger.info('Saving model to {}\n'.format(self.settings.OUTPUT_PATH))
-                    torch.save(self.model.state_dict(), self.settings.OUTPUT_PATH)
+                    logger.info('Saving model to {}\n'.format(self.settings.OUTPUT_PATH + ".torch"))
+                    torch.save(self.model.state_dict(), self.settings.OUTPUT_PATH + ".torch")
+                    file = self.settings.OUTPUT_PATH + '.meta'
+                    with open(file, 'w') as filetowrite:
+                        filetowrite.write('Encoder: ' + str(self.settings.ENCODER) + '\n' +
+                                          'Architecture: ' + str(self.settings.ARCHITECTURE.value) + '\n' +
+                                          'Classes: ' + str(self.settings.CLASSES))
+
                     highest_accuracy = accuracy
+                if callback:
+                    callback.on_epoch_end(epoch=epoch, acc=highest_accuracy)
 
-    def predict(self):
-
+    def predict(self, tta_aug=None, debug=None):
+        transforms = tta_aug
+        if tta_aug is None:
+            import ttach as tta
+            transforms = tta.Compose(
+                [
+                    tta.Scale(scales=[1]),
+                ]
+            )
         from torch.utils import data
 
         self.model.eval()
@@ -213,13 +380,6 @@ class Network(object):
         predict_loader = data.DataLoader(dataset=self.settings.PREDICT_DATASET,
                                          batch_size=1,
                                          shuffle=False, num_workers=self.settings.PROCESSES)
-        import ttach as tta
-        transforms = tta.Compose(
-            [
-                tta.HorizontalFlip(),
-                tta.Scale(scales=[1]),
-            ]
-        )
         with torch.no_grad():
             for idx, (data, target) in enumerate(predict_loader):
                 data, target = data.to(self.device), target.to(self.device, dtype=torch.int64)
@@ -266,8 +426,8 @@ class Network(object):
 
                         plt.show()
 
-                debug(output, target, data, self.color_map)
-
+                if debug:
+                    debug(output, target, data, self.color_map)
                 out = output.data.cpu().numpy()
                 out = np.transpose(out, (0, 2, 3, 1))
                 out = np.squeeze(out)
@@ -281,11 +441,64 @@ class Network(object):
                     list_out.append(label_to_colors(mask=torch.squeeze(target), colormap=self.color_map))
                     plot_list(list_out)
 
-                plot(outputs)
+                if debug:
+                    plot(outputs)
                 yield out
 
-    def predict_single_image(self):
-        pass
+    def predict_single_image(self, image: np.array, rgb=True, preprocessing=True, tta_aug=None):
+        if not isinstance(self.settings, PredictorSettings):
+            logger.warning('Settings is of type: {}. Pass settings to network object of type Train to train'.format(
+                str(type(self.settings))))
+            return
+        # from torch.utils import data
+        transforms = tta_aug
+        if tta_aug is None:
+            import ttach as tta
+            transforms = tta.Compose(
+                [
+                    tta.Scale(scales=[1]),
+                ]
+            )
+        from segmentation.util import gray_to_rgb
+        self.model.eval()
+        preprocessing_fn = sm.encoders.get_preprocessing_fn(self.encoder)
+        if rgb:
+            image = gray_to_rgb(image)
+        result = {"image": image}
+
+        if preprocessing:
+            result["image"] = preprocessing_fn(result["image"])
+        result = compose([post_transforms()])(**result)
+        data = result["image"]
+        data = data.unsqueeze(0)
+
+        with torch.no_grad():
+            data = data.to(self.device)
+
+            outputs = []
+            o_shape = data.shape
+            for transformer in transforms:
+                augmented_image = transformer.augment_image(data)
+                shape = list(augmented_image.shape)[2:]
+                padded = pad(augmented_image, 32)  ## 2**5
+
+                input = padded.float()
+                output = self.model(input)
+                output = unpad(output, shape)
+                reversed = transformer.deaugment_mask(output)
+                reversed = torch.nn.functional.interpolate(reversed, size=list(o_shape)[2:], mode="nearest")
+                print("original: {} input: {}, padded: {} unpadded {} output {}".format(str(o_shape),
+                                                                                        str(shape), str(
+                        list(augmented_image.shape)), str(list(output.shape)), str(list(reversed.shape))))
+                outputs.append(reversed)
+            stacked = torch.stack(outputs)
+            output = torch.mean(stacked, dim=0)
+
+            out = output.data.cpu().numpy()
+            out = np.transpose(out, (0, 2, 3, 1))
+            out = np.squeeze(out)
+
+            return out
 
 
 def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_index=2, original=None):
@@ -299,25 +512,25 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
     baseline_border = np.zeros(image_map.shape)
     baseline[base_ind] = 1
     baseline_border[base_border_ind] = 1
-    baseline_ccs, n_baseline_ccs = label(baseline)
+    baseline_ccs, n_baseline_ccs = label(baseline, structure=[[1, 1, 1], [1, 1, 1], [1, 1, 1]])
 
     baseline_ccs = [np.where(baseline_ccs == x) for x in range(1, n_baseline_ccs + 1)]
-    baseline_border_ccs, n_baseline_border_ccs = label(baseline_border)
+    baseline_border_ccs, n_baseline_border_ccs = label(baseline_border, structure=[[1, 1, 1], [1, 1, 1], [1, 1, 1]])
     baseline_border_ccs = [np.where(baseline_border_ccs == x) for x in range(1, n_baseline_border_ccs + 1)]
 
     class Cc_with_type(object):
         def __init__(self, cc, type):
             self.cc = cc
-            index_min = np.where(cc[1] == min(cc[1]))[0]
-            index_max = np.where(cc[1] == max(cc[1]))[0]
+            index_min = np.where(cc[1] == min(cc[1]))  # [0]
+            index_max = np.where(cc[1] == max(cc[1]))  # [0]
 
             if type == 'baseline':
-                self.cc_left = (cc[0][index_min][0], cc[1][index_min][0])
-                self.cc_right = (cc[0][index_max][0], cc[1][index_max][0])
+                self.cc_left = (np.mean(cc[0][index_min][0]), cc[1][index_min[0]][0])
+                self.cc_right = (np.mean(cc[0][index_max][0]), cc[1][index_max[0]][0])
 
             else:
-                self.cc_left = (np.mean(cc[0]), cc[1][index_min][0])
-                self.cc_right = (np.mean(cc[0]), cc[1][index_max][0])
+                self.cc_left = (np.mean(cc[0]), cc[1][index_min[0]][0])
+                self.cc_right = (np.mean(cc[0]), cc[1][index_max[0]][0])
 
             self.type = type
 
@@ -347,28 +560,33 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
 
                     def right(x, y):
                         return x.cc_right[1] < y.cc_left[1]
-                    ANGLE = 5
+
+                    ANGLE = 10
                     if left(x, y):
                         angle = angle_to(np.array(y.cc_right), np.array(x.cc_left))
-                        if ANGLE < angle < (360 - ANGLE):
+                        distance = x.cc_left[1] - y.cc_right[1]
+                        test_angle = ANGLE if distance > 30 else ANGLE * 3 if distance > 5 else ANGLE * 5
+                        if test_angle < angle < (360 - test_angle):
                             distance = 99999
                         else:
-                            distance = x.cc_left[1] - y.cc_right[1]
                             point_c = y.cc_right
                             point_n = x.cc_left
 
-                            x_points = np.arange(start=point_c[1], stop=point_n[1]+1)
+                            x_points = np.arange(start=point_c[1], stop=point_n[1] + 1)
                             y_points = np.interp(x_points, [point_c[1], point_n[1]], [point_c[0], point_n[0]]).astype(
                                 int)
                             indexes = (y_points, x_points)
 
                             blackness = np.sum(baseline_border[indexes])
-                            #print('left' + str(blackness))
-                            distance = distance * (blackness*5000 + 1)
+                            # print('left' + str(blackness))
+                            distance = distance * (blackness * 5000 + 1)
 
                     elif right(x, y):
                         angle = angle_to(np.array(x.cc_right), np.array(y.cc_left))
-                        if ANGLE < angle < (360 - ANGLE):
+                        distance = y.cc_left[1] - x.cc_right[1]
+                        test_angle = ANGLE if distance > 30 else ANGLE * 3 if distance > 5 else ANGLE * 5
+
+                        if test_angle < angle < (360 - test_angle):
                             distance = 99999
                         else:
                             distance = y.cc_left[1] - x.cc_right[1]
@@ -376,14 +594,14 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
                             point_c = x.cc_right
                             point_n = y.cc_left
 
-                            x_points = np.arange(start=point_c[1], stop=point_n[1]+1)
+                            x_points = np.arange(start=point_c[1], stop=point_n[1] + 1)
                             y_points = np.interp(x_points, [point_c[1], point_n[1]],
                                                  [point_c[0], point_n[0]]).astype(
                                 int)
                             indexes = (y_points, x_points)
 
                             blackness = np.sum(baseline_border[indexes])
-                            distance = distance * (blackness*5000 + 1)
+                            distance = distance * (blackness * 5000 + 1)
                     else:
                         distance = 99999
 
@@ -412,6 +630,7 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
             ccs.append((np.concatenate([x.cc[0] for x in line]), np.concatenate([x.cc[1] for x in line])))
 
     ccs = [list(zip(x[0], x[1])) for x in ccs]
+
     from itertools import chain
     from typing import List, Tuple
     from collections import defaultdict
@@ -441,14 +660,21 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
     im = Image.fromarray(np.uint8(original))
     draw = ImageDraw.Draw(im)
 
-    for x in ccs:
+    colors = [(255, 0, 0),
+              (0, 255, 0),
+              (0, 0, 255),
+              (255, 255, 0),
+              (0, 255, 255),
+              (255, 0, 255)]
+
+    for ind, x in enumerate(ccs):
         t = list(chain.from_iterable(x))
         # print(t)
         a = t[::-1]
 
         # t = list(zip(*x))
         # print(t)
-        draw.line(a, fill=(255, 0, 0))
+        draw.line(a, fill=colors[ind % len(colors)], width=2)
         pass
     im.show()
     from matplotlib import pyplot
@@ -458,7 +684,6 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
     debug_image[debug_image == 0] = 255
     plt.imshow(debug_image, cmap="gist_ncar")
     plt.show()
-
 
 
 def plot_list(lsit):
@@ -548,22 +773,80 @@ if __name__ == '__main__':
         ['/mnt/sshfs/scratch/Datensets_Bildverarbeitung/page_segmentation/OCR-D/images/'],
         ['/mnt/sshfs/scratch/Datensets_Bildverarbeitung/page_segmentation/OCR-D/images/']
     )
+    f = dirs_to_pandaframe(
+        ['/home/alexander/Dokumente/dataset/diva-his/all-privateTest/img-CB55-privateTest/CB55/'],
+        ['/home/alexander/Dokumente/dataset/diva-his/all-privateTest/img-CB55-privateTest/CB55/']
+    )
+    g = dirs_to_pandaframe(
+        ['/mnt/sshfs/hartelt/datasets/Tristrant_1484/images/',
+         '/mnt/sshfs/hartelt/datasets/Narrenschiff_1553/images/',
+         '/mnt/sshfs/hartelt/datasets/Narrenschiff_1512/images/',
+         '/mnt/sshfs/hartelt/datasets/Narrenschiff_1509/images/',
+         '/mnt/sshfs/hartelt/datasets/Melusina_1474/images/',
+         '/mnt/sshfs/hartelt/datasets/La_grant_nef_des_folz_du_monde_1499/images/',
+         '/mnt/sshfs/hartelt/datasets/Franck_Chronica_1536_2/images/',
+         '/mnt/sshfs/hartelt/datasets/Franck_Chronica_1536_1/images/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Tusculanen_1538/images/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Querela_Martini_Luteri_1555/images/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Oratio_senatoria_de_bello_Turcico_1542/images/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Oratio_in_declaratione_magistrorum_1563/images/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Melanchthonvita_1566/images/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Historiae_Iesu_1566/images/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Epistulae_familiares_1595/images/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius-Epistulae_Eobani-1561/images/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Epistulae_1583/images/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Epistolae_familiares_1583/images/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Elementa_rhetoricae_1541/images/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_De_Helio_Eobano_Hesso_1553/images/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Decuriae_1594/images/',
+         ],
+        ['/mnt/sshfs/hartelt/datasets/Tristrant_1484/masks/',
+         '/mnt/sshfs/hartelt/datasets/Narrenschiff_1553/masks/',
+         '/mnt/sshfs/hartelt/datasets/Narrenschiff_1512/masks/',
+         '/mnt/sshfs/hartelt/datasets/Narrenschiff_1509/masks/',
+         '/mnt/sshfs/hartelt/datasets/Melusina_1474/masks/',
+         '/mnt/sshfs/hartelt/datasets/La_grant_nef_des_folz_du_monde_1499/masks/',
+         '/mnt/sshfs/hartelt/datasets/Franck_Chronica_1536_2/masks/',
+         '/mnt/sshfs/hartelt/datasets/Franck_Chronica_1536_1/masks/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Tusculanen_1538/masks/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Querela_Martini_Luteri_1555/masks/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Oratio_senatoria_de_bello_Turcico_1542/masks/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Oratio_in_declaratione_magistrorum_1563/masks/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Melanchthonvita_1566/masks/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Historiae_Iesu_1566/masks/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Epistulae_familiares_1595/masks/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius-Epistulae_Eobani-1561/masks/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Epistulae_1583/masks/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Epistolae_familiares_1583/masks/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Elementa_rhetoricae_1541/masks/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_De_Helio_Eobano_Hesso_1553/masks/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Decuriae_1594/masks/',
+         ]
+    )
     map = load_image_map_from_file(
         '/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/image_map.json')
     from segmentation.dataset import base_line_transform
 
     settings = MaskSetting(MASK_TYPE=MaskType.BASE_LINE, PCGTS_VERSION=PCGTSVersion.PCGTS2013, LINEWIDTH=5,
                            BASELINELENGTH=10)
-    dt = XMLDataset(a, map, transform=compose([base_line_transform()]), mask_generator=MaskGenerator(settings=settings))
-    d_test = XMLDataset(b, map, transform=compose([base_line_transform()]),
+    dt = XMLDataset(a[:5], map, transform=compose([base_line_transform()]),
+                    mask_generator=MaskGenerator(settings=settings))
+    d_test = XMLDataset(b[:5], map, transform=compose([base_line_transform()]),
                         mask_generator=MaskGenerator(settings=settings))
-    d_predict = MaskDataset(e, map, )  # transform=compose([base_line_transform()]))
+    d_predict = MaskDataset(e[:5], map,
+                            transform=compose([base_line_transform()]))  # transform=compose([base_line_transform()]))
     from segmentation.settings import TrainSettings
 
-    setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=dt, VAL_DATASET=d_test, OUTPUT_PATH="model.torch3",
-                            MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/model_multi.torch')
-    p_setting = PredictorSettings(CLASSES=len(map), PREDICT_DATASET=d_predict,
-                                  MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/model.torch')
+    setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=dt, VAL_DATASET=d_test,
+                            OUTPUT_PATH="/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/model_test_meta_1")
+    # MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/model_hist_cbad.torch')
+    p_setting = PredictorSettings(PREDICT_DATASET=d_predict,
+                                  MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/model9090.torch')
     trainer = Network(p_setting, color_map=map)
+    # trainer.train()
+    from PIL import Image
+
+    a = np.array(Image.open(a.get('images')[0]))
+    data = trainer.predict_single_image(a)
     for x in trainer.predict():
         print(x.shape)

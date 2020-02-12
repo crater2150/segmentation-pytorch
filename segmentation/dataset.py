@@ -108,6 +108,42 @@ class MaskDataset(Dataset):
         return len(self.index)
 
 
+class MemoryDataset(Dataset):
+    def __init__(self, df, color_map=None, preprocessing=default_preprocessing, transform=None, rgb=True):
+        self.df = df
+        self.color_map = color_map
+        self.augmentation = transform
+        self.index = self.df.index.tolist()
+        self.preprocessing = preprocessing
+        self.rgb = rgb
+
+    def __getitem__(self, item, apply_preprocessing=True):
+        image_id, mask_id = self.df.get('images')[item], self.df.get('masks')[item]
+
+        image = image_id
+        mask = mask_id
+        if self.rgb:
+            image = gray_to_rgb(image)
+        result = {"image": image}
+        if mask.ndim == 3:
+            result["mask"] = color_to_label(mask, self.color_map)
+        else:
+            result["mask"] = mask
+
+        if self.augmentation is not None:
+            result = self.augmentation(**result)
+
+        if self.preprocessing is not None and apply_preprocessing:
+            result["image"] = self.preprocessing(result["image"])
+
+        result = compose([post_transforms()])(**result)
+
+        return result["image"], result["mask"]
+
+    def __len__(self):
+        return len(self.index)
+
+
 class XMLDataset(Dataset):
     def __init__(self, df, color_map, mask_generator: BaseMaskGenerator, preprocessing=default_preprocessing, transform=None, rgb=True):
         self.df = df
@@ -155,29 +191,30 @@ class XMLDataset(Dataset):
 
 
 class PredictDataset(Dataset):
-    def __init__(self, df, color_map, mask_generator: BaseMaskGenerator, preprocessing=default_preprocessing, transform=None, rgb=True):
+    def __init__(self, df, color_map, mask_generator: BaseMaskGenerator, preprocessing=default_preprocessing, transform=None, rgb=True, pad_factor: int = 32):
         self.df = df
         self.color_map = color_map
         self.index = self.df.index.tolist()
         self.preprocessing = preprocessing
         self.rgb = rgb
+        self.pad_factor = pad_factor
 
     def __getitem__(self, item, apply_preprocessing=True):
         image_id, mask_id = self.df.get('images')[item], self.df.get('masks')[item]
-
+        l_factor = self.pad_factor
         image = Image.open(image_id)
         if (image.size[1] * image.size[0]) >= 1500000:
             rescale_factor = math.sqrt(1500000 / (image.size[1] * image.size[0]))
         else:
             rescale_factor = 1.0
         image = np.array(rescale_pil(image, rescale_factor, 1))
+        mask = image
         mask_shape = image.shape
-        l_factor = 32
-        h_dif = l_factor - mask_shape[0] % l_factor
-        x_dif = l_factor - mask_shape[1] % l_factor
+        #h_dif = l_factor - mask_shape[0] % l_factor
+        #x_dif = l_factor - mask_shape[1] % l_factor
 
-        mask = np.pad(array=mask, pad_width=((h_dif, 0), (x_dif, 0), (0, 0)), constant_values=255)
-        image = np.pad(array=image, pad_width=((h_dif, 0), (x_dif, 0), (0, 0)), constant_values=255)
+        #mask = np.pad(array=image, pad_width=((h_dif, 0), (x_dif, 0), (0, 0)), constant_values=255)
+        #image = np.pad(array=image, pad_width=((h_dif, 0), (x_dif, 0), (0, 0)), constant_values=255)
         if self.rgb:
             image = gray_to_rgb(image)
         result = {"image": image}
@@ -192,9 +229,6 @@ class PredictDataset(Dataset):
 
         if self.preprocessing is not None and apply_preprocessing:
             result["image"] = self.preprocessing(result["image"])
-
-        if self.augmentation is not None:
-            result = self.augmentation(**result)
 
         return result["image"], result["mask"]
 

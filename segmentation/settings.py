@@ -12,6 +12,7 @@ class TrainSettings(NamedTuple):
     CLASSES: int
     OUTPUT_PATH: str
 
+    PSEUDO_DATASET: MaskDataset = None
     EPOCHS: int = 15
     OPTIMIZER: Optimizers = Optimizers.ADAM
     LEARNINGRATE_ENCODER: float = 1.e-5
@@ -29,10 +30,12 @@ class TrainSettings(NamedTuple):
 
 
 class PredictorSettings(NamedTuple):
-    CLASSES: int
-    PREDICT_DATASET: MaskDataset
+    PREDICT_DATASET: MaskDataset = None
     MODEL_PATH: str = None
-    ARCHITECTURE: Architecture = Architecture.UNET
-    ENCODER: str = "efficientnet-b3"
     PROCESSES: int = 4
+
+
+class BaseLineDetectionSettings(NamedTuple):
+    MAXDISTANCE = 100
+    ANGLE = 10
 
