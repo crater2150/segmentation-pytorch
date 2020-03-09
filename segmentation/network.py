@@ -285,7 +285,7 @@ class Network(object):
         self.device = torch.device(device)
         self.model_params = architecture.get_architecture_params()
         self.model_params['classes'] = classes
-        # self.model_params['decoder_use_batchnorm'] = False
+        self.model_params['decoder_use_batchnorm'] = False
         self.model_params['encoder_name'] = encoder
         self.model = get_model(architecture, self.model_params)
         if self.settings.MODEL_PATH:
