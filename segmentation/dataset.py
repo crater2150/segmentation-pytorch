@@ -1,3 +1,4 @@
+import skimage
 from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 import pandas as pd
@@ -15,10 +16,10 @@ from skimage.transform import rescale, resize
 import albumentations as albu
 import torch
 import gc
-from segmentation.util import gray_to_rgb
+from segmentation.util import gray_to_rgb, rgb2gray
 from pagexml_mask_converter.pagexml_to_mask import MaskGenerator, MaskSetting, BaseMaskGenerator, MaskType, PCGTSVersion
 import math
-
+from segmentation.preprocessing.ocrupus import binarize
 # When training/testing/evaluationg on cpu set environment vairalbe LRU_CACHE_CAPACITY=1
 # Needed for dynamicaly sized inputs, else memory leak
 def to_categorical(y, num_classes, torch=True):
@@ -85,16 +86,11 @@ class MaskDataset(Dataset):
         if self.rgb:
             image = gray_to_rgb(image)
         result = {"image": image}
-        if mask.ndim == 3:
-            result["mask"] = color_to_label(mask, self.color_map)
-        elif mask.ndim == 2:
-            u_values = np.unique(mask)
-            mask = result["mask"]
-            for ind, x in enumerate(u_values):
-                mask[mask == x] = ind
-            result["mask"] = mask
-
+        if mask.ndim == 2:
+            mask = gray_to_rgb(mask)
+        result["mask"] = color_to_label(mask, self.color_map)
         if self.augmentation is not None:
+            np.random.randint(1, 4)
             result = self.augmentation(**result)
 
         if self.preprocessing is not None and apply_preprocessing:
@@ -180,9 +176,22 @@ class XMLDataset(Dataset):
         if self.augmentation is not None:
             result = self.augmentation(**result)
 
+
+
+        if self.augmentation is not None:
+            from segmentation.preprocessing.basic_binarizer import gauss_threshold
+            from matplotlib import pyplot as plt
+
+            ran = np.random.randint(1, 5)
+            if ran == 1:
+                image = rgb2gray(result["image"]).astype(np.uint8)
+                result["image"] = gray_to_rgb(gauss_threshold(image))
+                #f, ax = plt.subplots(1, 2, True, True)
+                #ax[0].imshow(result["image"])
+                #ax[1].imshow(result["mask"])
+                #plt.show()
         if self.preprocessing is not None and apply_preprocessing:
             result["image"] = self.preprocessing(result["image"])
-
         result = compose([post_transforms()])(**result)
         return result["image"], result["mask"]
 

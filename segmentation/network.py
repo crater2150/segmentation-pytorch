@@ -113,7 +113,7 @@ def train(model, device, train_loader, optimizer, epoch, criterion, accumulation
             mean = [0.485, 0.456, 0.406]
             stds = [0.229, 0.224, 0.225]
             mask = torch.argmax(mask, dim=1)
-            mask = torch.squeeze(mask)
+            mask = torch.squeeze(mask).cpu()
             original = original.permute(0, 2, 3, 1)
             original = torch.squeeze(original).cpu().numpy()
             original = original * stds
@@ -121,7 +121,7 @@ def train(model, device, train_loader, optimizer, epoch, criterion, accumulation
             original = original * 255
             original = original.astype(int)
             f, ax = plt.subplots(1, 3, True, True)
-            target = torch.squeeze(target)
+            target = torch.squeeze(target).cpu()
             ax[0].imshow(label_to_colors(mask=target, colormap=color_map))
             ax[1].imshow(label_to_colors(mask=mask, colormap=color_map))
             ax[2].imshow(original)
@@ -158,7 +158,7 @@ def train(model, device, train_loader, optimizer, epoch, criterion, accumulation
                                                                                           loss.item(),
                                                                                           train_accuracy)),
         if (batch_idx + 1) % accumulation_steps == 0:  # Wait for several backward steps
-            debug_img(output, target, data, color_map)
+            #debug_img(output, target, data, color_map)
             if isinstance(optimizer, Iterable):  # Now we can do an optimizer step
                 for opt in optimizer:
                     opt.step()
@@ -233,7 +233,7 @@ def train_unlabeled(model, device, train_loader, unlabeled_loader,
                                                                                           train_accuracy)),
         if (batch_idx + 1) % accumulation_steps == 0:  # Wait for several backward steps
             # debug(output, target, data, color_map)
-            if isinstance(optimizer, Iterable):  # Now we can do an optimizer step
+            if isinstance(optimizer, Iterable):  # Now we can do an optimizer stepd
                 for opt in optimizer:
                     opt.step()
             else:
@@ -407,7 +407,7 @@ class Network(object):
                     if color_map is not None:
                         mean = [0.485, 0.456, 0.406]
                         stds = [0.229, 0.224, 0.225]
-                        mask = torch.argmax(mask, dim=1)
+                        mask = torch.argmax(mask.cpu(), dim=1)
                         mask = torch.squeeze(mask)
                         original = original.permute(0, 2, 3, 1)
                         original = torch.squeeze(original).cpu().numpy()
@@ -418,7 +418,7 @@ class Network(object):
                         extract_baselines(mask, original=original)
 
                         f, ax = plt.subplots(1, 3, True, True)
-                        target = torch.squeeze(target)
+                        target = torch.squeeze(target.cpu())
                         ax[0].imshow(label_to_colors(mask=target, colormap=color_map))
                         ax[1].imshow(label_to_colors(mask=mask, colormap=color_map))
                         ax[2].imshow(original)
@@ -435,10 +435,10 @@ class Network(object):
                 def plot(outputs):
                     list_out = []
                     for ind, x in enumerate(outputs):
-                        mask = torch.argmax(x, dim=1)
+                        mask = torch.argmax(x.cpu(), dim=1)
                         mask = torch.squeeze(mask)
                         list_out.append(label_to_colors(mask=mask, colormap=self.color_map))
-                    list_out.append(label_to_colors(mask=torch.squeeze(target), colormap=self.color_map))
+                    list_out.append(label_to_colors(mask=torch.squeeze(target.cpu()), colormap=self.color_map))
                     plot_list(list_out)
 
                 if debug:
@@ -829,21 +829,21 @@ if __name__ == '__main__':
 
     settings = MaskSetting(MASK_TYPE=MaskType.BASE_LINE, PCGTS_VERSION=PCGTSVersion.PCGTS2013, LINEWIDTH=5,
                            BASELINELENGTH=10)
-    dt = XMLDataset(a[:5], map, transform=compose([base_line_transform()]),
+    dt = XMLDataset(a, map, transform=compose([base_line_transform()]),
                     mask_generator=MaskGenerator(settings=settings))
-    d_test = XMLDataset(b[:5], map, transform=compose([base_line_transform()]),
+    d_test = XMLDataset(b, map, transform=compose([base_line_transform()]),
                         mask_generator=MaskGenerator(settings=settings))
-    d_predict = MaskDataset(e[:5], map,
+    d_predict = MaskDataset(e[:15], map,
                             transform=compose([base_line_transform()]))  # transform=compose([base_line_transform()]))
     from segmentation.settings import TrainSettings
 
     setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=dt, VAL_DATASET=d_test,
-                            OUTPUT_PATH="/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/model_test_meta_1")
-    # MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/model_hist_cbad.torch')
+                            OUTPUT_PATH="/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/ICDAR2019_b",
+                            MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/model9090.torch')
     p_setting = PredictorSettings(PREDICT_DATASET=d_predict,
-                                  MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/model9090.torch')
+                                  MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/ICDAR2019_b.torch')
     trainer = Network(p_setting, color_map=map)
-    # trainer.train()
+    #trainer.train()
     from PIL import Image
 
     a = np.array(Image.open(a.get('images')[0]))

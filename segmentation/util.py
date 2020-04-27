@@ -46,3 +46,10 @@ def gray_to_rgb(img):
         return np.concatenate(3 * (img,), axis=-1)
     else:
         return img
+
+
+def rgb2gray(rgb):
+    r, g, b = rgb[:,:,0], rgb[:,:,1], rgb[:,:,2]
+    gray = 0.2989 * r + 0.5870 * g + 0.1140 * b
+
+    return gray
