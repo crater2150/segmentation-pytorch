@@ -19,8 +19,10 @@ import gc
 from segmentation.util import gray_to_rgb, rgb2gray
 from pagexml_mask_converter.pagexml_to_mask import MaskGenerator, MaskSetting, BaseMaskGenerator, MaskType, PCGTSVersion
 import math
+from segmentation.preprocessing.basic_binarizer import gauss_threshold
+
 from segmentation.preprocessing.ocrupus import binarize
-# When training/testing/evaluationg on cpu set environment vairalbe LRU_CACHE_CAPACITY=1
+# When training/testing/evaluationg on cpu set environment varialbe LRU_CACHE_CAPACITY=1
 # Needed for dynamicaly sized inputs, else memory leak
 def to_categorical(y, num_classes, torch=True):
     """ 1-hot encodes a tensor """
@@ -35,6 +37,7 @@ def color_to_label(mask, colormap: dict):
 
     if mask.ndim == 2:
         return mask.astype(np.int32) / 255
+    
     if mask.shape[2] == 2:
         return mask[:, :, 0].astype(np.int32) / 255
     mask = mask.astype(np.uint32)
@@ -63,6 +66,40 @@ def default_preprocessing(x):
     return x / 255.
 
 
+def process(image, mask, rgb, preprocessing, apply_preprocessing, augmentation, color_map=None,
+            binary_augmentation= True):
+
+    if rgb:
+        image = gray_to_rgb(image)
+    result = {"image": image}
+    if color_map:
+        if mask.ndim == 3:
+            result["mask"] = color_to_label(mask, color_map)
+        elif mask.ndim == 2:
+            u_values = np.unique(mask)
+            mask = result["mask"]
+            for ind, x in enumerate(u_values):
+                mask[mask == x] = ind
+            result["mask"] = mask
+    else:
+        result["mask"] = mask if mask is not None else image
+
+    if augmentation is not None:
+        result = augmentation(**result)
+
+    if augmentation is not None and binary_augmentation:
+        from segmentation.preprocessing.basic_binarizer import gauss_threshold
+        from matplotlib import pyplot as plt
+        ran = np.random.randint(1, 5)
+        if ran == 1:
+            image = rgb2gray(result["image"]).astype(np.uint8)
+            result["image"] = gray_to_rgb(gauss_threshold(image))
+    if apply_preprocessing is not None and apply_preprocessing:
+        result["image"] = preprocessing(result["image"])
+    result = compose([post_transforms()])(**result)
+    return result["image"], result["mask"]
+
+
 class MaskDataset(Dataset):
     def __init__(self, df, color_map, preprocessing=default_preprocessing, transform=None, rgb=True):
         self.df = df
@@ -77,28 +114,13 @@ class MaskDataset(Dataset):
 
         image = Image.open(image_id)
         mask = Image.open(mask_id)
-        if (image.size[1] * image.size[0]) >= 1500000:
-            rescale_factor = math.sqrt(1500000 / (image.size[1] * image.size[0]))
-        else:
-            rescale_factor = 1.0
+        rescale_factor = get_rescale_factor(image)
+
         mask = np.array(rescale_pil(mask, rescale_factor, 0))
         image = np.array(rescale_pil(image, rescale_factor, 1))
-        if self.rgb:
-            image = gray_to_rgb(image)
-        result = {"image": image}
-        if mask.ndim == 2:
-            mask = gray_to_rgb(mask)
-        result["mask"] = color_to_label(mask, self.color_map)
-        if self.augmentation is not None:
-            np.random.randint(1, 4)
-            result = self.augmentation(**result)
-
-        if self.preprocessing is not None and apply_preprocessing:
-            result["image"] = self.preprocessing(result["image"])
-
-        result = compose([post_transforms()])(**result)
-
-        return result["image"], result["mask"]
+        image, mask = process(image, mask, rgb=self.rgb, preprocessing=self.preprocessing,
+                apply_preprocessing=apply_preprocessing, augmentation=self.augmentation, binary_augmentation=True)
+        return image, mask, torch.tensor(item)
 
     def __len__(self):
         return len(self.index)
@@ -118,23 +140,10 @@ class MemoryDataset(Dataset):
 
         image = image_id
         mask = mask_id
-        if self.rgb:
-            image = gray_to_rgb(image)
-        result = {"image": image}
-        if mask.ndim == 3:
-            result["mask"] = color_to_label(mask, self.color_map)
-        else:
-            result["mask"] = mask
+        image, mask = process(image, mask, rgb=self.rgb, preprocessing=self.preprocessing,
+                apply_preprocessing=apply_preprocessing, augmentation=self.augmentation, binary_augmentation=True)
 
-        if self.augmentation is not None:
-            result = self.augmentation(**result)
-
-        if self.preprocessing is not None and apply_preprocessing:
-            result["image"] = self.preprocessing(result["image"])
-
-        result = compose([post_transforms()])(**result)
-
-        return result["image"], result["mask"]
+        return image, mask, torch.tensor(item)
 
     def __len__(self):
         return len(self.index)
@@ -154,46 +163,14 @@ class XMLDataset(Dataset):
         image_id, mask_id = self.df.get('images')[item], self.df.get('masks')[item]
 
         image = Image.open(image_id)
-        if (image.size[1] * image.size[0]) >= 1500000:
-            rescale_factor = math.sqrt(1500000 / (image.size[1] * image.size[0]))
-        else:
-            rescale_factor = 1.0
+        rescale_factor = get_rescale_factor(image)
+
         mask = self.mask_generator.get_mask(mask_id, rescale_factor)
         image = np.array(rescale_pil(image, rescale_factor, 1))
 
-        if self.rgb:
-            image = gray_to_rgb(image)
-        result = {"image": image}
-        if mask.ndim == 3:
-            result["mask"] = color_to_label(mask, self.color_map)
-        elif mask.ndim == 2:
-            u_values = np.unique(mask)
-            mask = result["mask"]
-            for ind, x in enumerate(u_values):
-                mask[mask == x] = ind
-            result["mask"] = mask
-
-        if self.augmentation is not None:
-            result = self.augmentation(**result)
-
-
-
-        if self.augmentation is not None:
-            from segmentation.preprocessing.basic_binarizer import gauss_threshold
-            from matplotlib import pyplot as plt
-
-            ran = np.random.randint(1, 5)
-            if ran == 1:
-                image = rgb2gray(result["image"]).astype(np.uint8)
-                result["image"] = gray_to_rgb(gauss_threshold(image))
-                #f, ax = plt.subplots(1, 2, True, True)
-                #ax[0].imshow(result["image"])
-                #ax[1].imshow(result["mask"])
-                #plt.show()
-        if self.preprocessing is not None and apply_preprocessing:
-            result["image"] = self.preprocessing(result["image"])
-        result = compose([post_transforms()])(**result)
-        return result["image"], result["mask"]
+        image, mask = process(image, mask, rgb=self.rgb, preprocessing=self.preprocessing,
+                apply_preprocessing=apply_preprocessing, augmentation=self.augmentation, binary_augmentation=True)
+        return image, mask, torch.tensor(item)
 
     def __len__(self):
         return len(self.index)
@@ -209,40 +186,27 @@ class PredictDataset(Dataset):
         self.pad_factor = pad_factor
 
     def __getitem__(self, item, apply_preprocessing=True):
+
         image_id, mask_id = self.df.get('images')[item], self.df.get('masks')[item]
         l_factor = self.pad_factor
         image = Image.open(image_id)
-        if (image.size[1] * image.size[0]) >= 1500000:
-            rescale_factor = math.sqrt(1500000 / (image.size[1] * image.size[0]))
-        else:
-            rescale_factor = 1.0
+        rescale_factor = get_rescale_factor(image)
+
         image = np.array(rescale_pil(image, rescale_factor, 1))
         mask = image
-        mask_shape = image.shape
-        #h_dif = l_factor - mask_shape[0] % l_factor
-        #x_dif = l_factor - mask_shape[1] % l_factor
-
-        #mask = np.pad(array=image, pad_width=((h_dif, 0), (x_dif, 0), (0, 0)), constant_values=255)
-        #image = np.pad(array=image, pad_width=((h_dif, 0), (x_dif, 0), (0, 0)), constant_values=255)
-        if self.rgb:
-            image = gray_to_rgb(image)
-        result = {"image": image}
-        if mask.ndim == 3:
-            result["mask"] = color_to_label(mask, self.color_map)
-        elif mask.ndim == 2:
-            u_values = np.unique(mask)
-            mask = result["mask"]
-            for ind, x in enumerate(u_values):
-                mask[mask == x] = ind
-            result["mask"] = mask
-
-        if self.preprocessing is not None and apply_preprocessing:
-            result["image"] = self.preprocessing(result["image"])
-
-        return result["image"], result["mask"]
+        image, mask = process(image, mask, rgb=self.rgb, preprocessing=self.preprocessing,
+                apply_preprocessing=apply_preprocessing, augmentation=None, binary_augmentation=True)
+        return image, mask, torch.tensor(item)
 
     def __len__(self):
         return len(self.index)
+
+
+def get_rescale_factor(pil_image):
+    rescale_factor = 1.0
+    if (pil_image.size[1] * pil_image.size[0]) >= 1000000:
+        rescale_factor = math.sqrt(1000000 / (pil_image.size[1] * pil_image.size[0]))
+    return rescale_factor
 
 
 def listdir(dir, postfix="", not_postfix=False):
@@ -270,14 +234,13 @@ def dirs_to_pandaframe(images_dir: List[str], masks_dir: List[str], verify_filen
 
         img_dir = filenames(img)
         mask_dir = filenames(m)
-        base_names = set(img_dir.keys()).intersection(set(mask_dir.keys()))
+        base_names = sorted(set(img_dir.keys()).intersection(set(mask_dir.keys())))
 
         img = [img_dir.get(basename) for basename in base_names]
         m = [mask_dir.get(basename) for basename in base_names]
 
     else:
         base_names = None
-
     df = pd.DataFrame(data={'images': img, 'masks': m})
 
     return df
@@ -309,6 +272,7 @@ def hard_transforms():
 
     return result
 
+
 def base_line_transform():
     result = [
     albu.HorizontalFlip(),
@@ -320,6 +284,7 @@ def base_line_transform():
     albu.RandomScale(),
     ]
     return result
+
 
 def resize_transforms(image_size=480):
     BORDER_CONSTANT = 0
@@ -415,8 +380,6 @@ def show_random(df, transforms=None) -> None:
     index = random.randint(0, length - 1)
     image = df.get('images')[index]
     mask = df.get('masks')[index]
-    print(image)
-    print(mask)
     show(index, image, mask, transforms)
     plt.show()
 

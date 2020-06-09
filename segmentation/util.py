@@ -1,6 +1,6 @@
 import numpy as np
 import itertools
-
+from itertools import zip_longest
 
 def angle_to(p1, p2):
     p2 = p2 - p1
@@ -35,10 +35,17 @@ def angle_between2(p1, p2):
 
 
 def pairwise(iterable):
+    if len(iterable) <= 1:
+        return pairwise(iterable * 2)
     a, b = itertools.tee(iterable)
     next(b, None)
     return zip(a, b)
 
+def grouper(iterable, n, fillvalue=None):
+    "Collect data into fixed-length chunks or blocks"
+    # grouper('ABCDEFG', 3, 'x') --> ABC DEF Gxx"
+    args = [iter(iterable)] * n
+    return zip_longest(*args, fillvalue=fillvalue)
 
 def gray_to_rgb(img):
     if len(img.shape) != 3 or img.shape[2] != 3:

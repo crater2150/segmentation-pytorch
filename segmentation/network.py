@@ -80,7 +80,7 @@ def test(model, device, test_loader, criterion):
     correct = 0
     total = 0
     with torch.no_grad():
-        for idx, (data, target) in enumerate(test_loader):
+        for idx, (data, target, id) in enumerate(test_loader):
             data, target = data.to(device), target.to(device, dtype=torch.int64)
             shape = list(data.shape)[2:]
             padded = pad(data, 32)
@@ -132,7 +132,7 @@ def train(model, device, train_loader, optimizer, epoch, criterion, accumulation
     total_train = 0
     correct_train = 0
 
-    for batch_idx, (data, target) in enumerate(train_loader):
+    for batch_idx, (data, target, id) in enumerate(train_loader):
 
         data, target = data.to(device), target.to(device, dtype=torch.int64)
 
@@ -158,7 +158,7 @@ def train(model, device, train_loader, optimizer, epoch, criterion, accumulation
                                                                                           loss.item(),
                                                                                           train_accuracy)),
         if (batch_idx + 1) % accumulation_steps == 0:  # Wait for several backward steps
-            #debug_img(output, target, data, color_map)
+            # debug_img(output, target, data, color_map)
             if isinstance(optimizer, Iterable):  # Now we can do an optimizer step
                 for opt in optimizer:
                     opt.step()
@@ -200,7 +200,7 @@ def train_unlabeled(model, device, train_loader, unlabeled_loader,
     model.train()
     total_train = 0
     correct_train = 0
-    for batch_idx, (data, target) in enumerate(unlabeled_loader):
+    for batch_idx, (data, target, id) in enumerate(unlabeled_loader):
         data = data.to(device)
         shape = list(data.shape)[2:]
         padded = pad(data, 32)
@@ -282,6 +282,7 @@ class Network(object):
             self.settings.TRAIN_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(self.settings.ENCODER)
             self.settings.VAL_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(self.settings.ENCODER)
         device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(device)
         self.device = torch.device(device)
         self.model_params = architecture.get_architecture_params()
         self.model_params['classes'] = classes
@@ -366,7 +367,9 @@ class Network(object):
             import ttach as tta
             transforms = tta.Compose(
                 [
-                    tta.Scale(scales=[1]),
+                    tta.Scale(scales=[0.95, 1, 1.05]),
+                    tta.HorizontalFlip(),
+
                 ]
             )
         from torch.utils import data
@@ -381,7 +384,7 @@ class Network(object):
                                          batch_size=1,
                                          shuffle=False, num_workers=self.settings.PROCESSES)
         with torch.no_grad():
-            for idx, (data, target) in enumerate(predict_loader):
+            for idx, (data, target, id) in enumerate(predict_loader):
                 data, target = data.to(self.device), target.to(self.device, dtype=torch.int64)
                 outputs = []
                 o_shape = data.shape
@@ -402,7 +405,7 @@ class Network(object):
                 stacked = torch.stack(outputs)
                 output = torch.mean(stacked, dim=0)
                 outputs.append(output)
-
+                '''
                 def debug(mask, target, original, color_map):
                     if color_map is not None:
                         mean = [0.485, 0.456, 0.406]
@@ -415,37 +418,76 @@ class Network(object):
                         original = original + mean
                         original = original * 255
                         original = original.astype(int)
-                        extract_baselines(mask, original=original)
+                        from segmentation.postprocessing.baseline_extraction import extract_baselines
+                        from segmentation.postprocessing.text_border_estimation import text_border_estimation
+                        from itertools import chain
 
-                        f, ax = plt.subplots(1, 3, True, True)
-                        target = torch.squeeze(target.cpu())
-                        ax[0].imshow(label_to_colors(mask=target, colormap=color_map))
-                        ax[1].imshow(label_to_colors(mask=mask, colormap=color_map))
-                        ax[2].imshow(original)
-                        ax[2].imshow(label_to_colors(mask=mask, colormap=color_map), cmap='jet', alpha=0.5)
+                        ccs = extract_baselines(mask, original=original)
+                        left_border_ccs, right_border_ccs = text_border_estimation(ccs)
 
-                        plt.show()
+                        from PIL import Image, ImageDraw
+
+                        im = Image.fromarray(np.uint8(original))
+                        draw = ImageDraw.Draw(im)
+
+                        colors = [(255, 0, 0),
+                                  (0, 255, 0),
+                                  (0, 0, 255),
+                                  (255, 255, 0),
+                                  (0, 255, 255),
+                                  (255, 0, 255)]
+                        if len(ccs) != 0:
+                            for x in left_border_ccs:
+                                top = x[0][0]
+                                bot = x[-1][0]
+                                min_x = min(top[1], bot[1])
+                                draw.line([(min_x, top[0]), (min_x, bot[0])], fill=(255, 0, 0), width=2)
+
+                            for x in right_border_ccs:
+                                top = x[0][-1]
+                                bot = x[-1][-1]
+                                max_x = max(top[1], bot[1])
+
+                                draw.line([(max_x, top[0]), (max_x, bot[0])], fill=(255, 0, 0), width=2)
+                            for ind, x in enumerate(ccs):
+                                t = list(chain.from_iterable(x))
+                                a = t[::-1]
+                                draw.line(a, fill=colors[ind % len(colors)], width=2)
+                                pass
+                            im.show()
+                            # dd
+                            f, ax = plt.subplots(1, 3, True, True)
+                            target = torch.squeeze(target.cpu())
+                            # ax[0].imshow(label_to_colors(mask=target, colormap=color_map))
+                            ax[0].imshow(label_to_colors(mask=mask, colormap=color_map))
+                            ax[1].imshow(original)
+                            ax[2].imshow(label_to_colors(mask=mask, colormap=color_map), cmap='jet', alpha=0.5)
+
+                            plt.show()
 
                 if debug:
                     debug(output, target, data, self.color_map)
+                '''
                 out = output.data.cpu().numpy()
                 out = np.transpose(out, (0, 2, 3, 1))
                 out = np.squeeze(out)
-
+                '''
                 def plot(outputs):
                     list_out = []
                     for ind, x in enumerate(outputs):
                         mask = torch.argmax(x.cpu(), dim=1)
                         mask = torch.squeeze(mask)
                         list_out.append(label_to_colors(mask=mask, colormap=self.color_map))
-                    list_out.append(label_to_colors(mask=torch.squeeze(target.cpu()), colormap=self.color_map))
+                    # list_out.append(label_to_colors(mask=torch.squeeze(target.cpu()), colormap=self.color_map))
                     plot_list(list_out)
 
                 if debug:
                     plot(outputs)
+                '''
                 yield out
 
     def predict_single_image(self, image: np.array, rgb=True, preprocessing=True, tta_aug=None):
+        from segmentation.dataset import process
         if not isinstance(self.settings, PredictorSettings):
             logger.warning('Settings is of type: {}. Pass settings to network object of type Train to train'.format(
                 str(type(self.settings))))
@@ -459,18 +501,13 @@ class Network(object):
                     tta.Scale(scales=[1]),
                 ]
             )
-        from segmentation.util import gray_to_rgb
         self.model.eval()
         preprocessing_fn = sm.encoders.get_preprocessing_fn(self.encoder)
-        if rgb:
-            image = gray_to_rgb(image)
-        result = {"image": image}
-
-        if preprocessing:
-            result["image"] = preprocessing_fn(result["image"])
-        result = compose([post_transforms()])(**result)
-        data = result["image"]
-        data = data.unsqueeze(0)
+        image, pseudo_mask = process(image=image, mask=image, rgb=rgb, preprocessing=preprocessing_fn,
+                                     apply_preprocessing=preprocessing, augmentation=None, color_map=None,
+                                     binary_augmentation=False)
+        # data = image
+        data = image.unsqueeze(0)
 
         with torch.no_grad():
             data = data.to(self.device)
@@ -493,197 +530,19 @@ class Network(object):
                 outputs.append(reversed)
             stacked = torch.stack(outputs)
             output = torch.mean(stacked, dim=0)
-
             out = output.data.cpu().numpy()
             out = np.transpose(out, (0, 2, 3, 1))
             out = np.squeeze(out)
 
             return out
 
-
-def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_index=2, original=None):
-    # from skimage import measure
-    from scipy.ndimage.measurements import label
-
-    base_ind = np.where(image_map == base_line_index)
-    base_border_ind = np.where(image_map == base_line_border_index)
-
-    baseline = np.zeros(image_map.shape)
-    baseline_border = np.zeros(image_map.shape)
-    baseline[base_ind] = 1
-    baseline_border[base_border_ind] = 1
-    baseline_ccs, n_baseline_ccs = label(baseline, structure=[[1, 1, 1], [1, 1, 1], [1, 1, 1]])
-
-    baseline_ccs = [np.where(baseline_ccs == x) for x in range(1, n_baseline_ccs + 1)]
-    baseline_border_ccs, n_baseline_border_ccs = label(baseline_border, structure=[[1, 1, 1], [1, 1, 1], [1, 1, 1]])
-    baseline_border_ccs = [np.where(baseline_border_ccs == x) for x in range(1, n_baseline_border_ccs + 1)]
-
-    class Cc_with_type(object):
-        def __init__(self, cc, type):
-            self.cc = cc
-            index_min = np.where(cc[1] == min(cc[1]))  # [0]
-            index_max = np.where(cc[1] == max(cc[1]))  # [0]
-
-            if type == 'baseline':
-                self.cc_left = (np.mean(cc[0][index_min][0]), cc[1][index_min[0]][0])
-                self.cc_right = (np.mean(cc[0][index_max][0]), cc[1][index_max[0]][0])
-
-            else:
-                self.cc_left = (np.mean(cc[0]), cc[1][index_min[0]][0])
-                self.cc_right = (np.mean(cc[0]), cc[1][index_max[0]][0])
-
-            self.type = type
-
-        def __lt__(self, other):
-            return self.cc < other
-
-    baseline_ccs = [Cc_with_type(x, 'baseline') for x in baseline_ccs if len(x[0]) > 10]
-
-    baseline_border_ccs = [Cc_with_type(x, 'baseline_border') for x in baseline_border_ccs if len(x[0]) > 10]
-
-    all_ccs = baseline_ccs + baseline_border_ccs
-    from segmentation.util import pairwise, angle_between, angle_to
-
-    def calculate_distance_matrix(ccs, length=50):
-        distance_matrix = np.zeros((len(ccs), len(ccs)))
-        vertical_distance = 10
-        for ind1, x in enumerate(ccs):
-            for ind2, y in enumerate(ccs):
-                if x is y:
-                    distance_matrix[ind1, ind2] = 0
-                else:
-                    distance = 0
-                    same_type = 1 if x.type == y.type else 1000
-
-                    def left(x, y):
-                        return x.cc_left[1] > y.cc_right[1]
-
-                    def right(x, y):
-                        return x.cc_right[1] < y.cc_left[1]
-
-                    ANGLE = 10
-                    if left(x, y):
-                        angle = angle_to(np.array(y.cc_right), np.array(x.cc_left))
-                        distance = x.cc_left[1] - y.cc_right[1]
-                        test_angle = ANGLE if distance > 30 else ANGLE * 3 if distance > 5 else ANGLE * 5
-                        if test_angle < angle < (360 - test_angle):
-                            distance = 99999
-                        else:
-                            point_c = y.cc_right
-                            point_n = x.cc_left
-
-                            x_points = np.arange(start=point_c[1], stop=point_n[1] + 1)
-                            y_points = np.interp(x_points, [point_c[1], point_n[1]], [point_c[0], point_n[0]]).astype(
-                                int)
-                            indexes = (y_points, x_points)
-
-                            blackness = np.sum(baseline_border[indexes])
-                            # print('left' + str(blackness))
-                            distance = distance * (blackness * 5000 + 1)
-
-                    elif right(x, y):
-                        angle = angle_to(np.array(x.cc_right), np.array(y.cc_left))
-                        distance = y.cc_left[1] - x.cc_right[1]
-                        test_angle = ANGLE if distance > 30 else ANGLE * 3 if distance > 5 else ANGLE * 5
-
-                        if test_angle < angle < (360 - test_angle):
-                            distance = 99999
-                        else:
-                            distance = y.cc_left[1] - x.cc_right[1]
-
-                            point_c = x.cc_right
-                            point_n = y.cc_left
-
-                            x_points = np.arange(start=point_c[1], stop=point_n[1] + 1)
-                            y_points = np.interp(x_points, [point_c[1], point_n[1]],
-                                                 [point_c[0], point_n[0]]).astype(
-                                int)
-                            indexes = (y_points, x_points)
-
-                            blackness = np.sum(baseline_border[indexes])
-                            distance = distance * (blackness * 5000 + 1)
-                    else:
-                        distance = 99999
-
-                    distance_matrix[ind1, ind2] = distance * same_type
-        return distance_matrix
-
-    matrix = calculate_distance_matrix(all_ccs)
-
-    from sklearn.cluster import DBSCAN
-    if np.sum(matrix) == 0:
-        print("Empty Image")
-        return
-    t = DBSCAN(eps=100, min_samples=1, metric="precomputed").fit(matrix)
-    debug_image = np.zeros(image_map.shape)
-    for ind, x in enumerate(all_ccs):
-        debug_image[x.cc] = t.labels_[ind]
-
-    ccs = []
-    for x in np.unique(t.labels_):
-        ind = np.where(t.labels_ == x)
-        line = []
-        for d in ind[0]:
-            if all_ccs[d].type == 'baseline':
-                line.append(all_ccs[d])
-        if len(line) > 0:
-            ccs.append((np.concatenate([x.cc[0] for x in line]), np.concatenate([x.cc[1] for x in line])))
-
-    ccs = [list(zip(x[0], x[1])) for x in ccs]
-
-    from itertools import chain
-    from typing import List, Tuple
-    from collections import defaultdict
-    def normalize_connected_components(cc_list: List[List[Tuple[int, int]]]):
-        # Normalize the CCs (line segments), so that the height of each cc is normalized to one pixel
-        def normalize(point_list):
-            normalized_cc_list = []
-            for cc in point_list:
-                cc_dict = defaultdict(list)
-                for y, x in cc:
-                    cc_dict[x].append(y)
-                normalized_cc = []
-                # for key, value in cc_dict.items():
-                for key in sorted(cc_dict.keys()):
-                    value = cc_dict[key]
-                    normalized_cc.append([int(np.floor(np.mean(value) + 0.5)), key])
-                normalized_cc_list.append(normalized_cc)
-            return normalized_cc_list
-
-        return normalize(cc_list)
-
-    ccs = normalize_connected_components(ccs)
-
-    plt.imshow(original)
-    from PIL import Image, ImageDraw
-
-    im = Image.fromarray(np.uint8(original))
-    draw = ImageDraw.Draw(im)
-
-    colors = [(255, 0, 0),
-              (0, 255, 0),
-              (0, 0, 255),
-              (255, 255, 0),
-              (0, 255, 255),
-              (255, 0, 255)]
-
-    for ind, x in enumerate(ccs):
-        t = list(chain.from_iterable(x))
-        # print(t)
-        a = t[::-1]
-
-        # t = list(zip(*x))
-        # print(t)
-        draw.line(a, fill=colors[ind % len(colors)], width=2)
-        pass
-    im.show()
-    from matplotlib import pyplot
-    import cycler
-    n = 15
-    color = pyplot.cm.rainbow(np.linspace(0, 1, n))
-    debug_image[debug_image == 0] = 255
-    plt.imshow(debug_image, cmap="gist_ncar")
-    plt.show()
+    def predict_single_image_by_path(self, path, rgb=True, preprocessing=True, tta_aug=None):
+        from PIL import Image
+        from segmentation.dataset import get_rescale_factor, rescale_pil
+        image = Image.open(path)
+        rescale_factor = get_rescale_factor(image)
+        image = np.array(rescale_pil(image, rescale_factor, 1))
+        return self.predict_single_image(image, rgb=rgb, preprocessing=preprocessing, tta_aug=tta_aug), rescale_factor
 
 
 def plot_list(lsit):
@@ -733,120 +592,85 @@ def plot_list(lsit):
         fig.set_size_inches(np.array(fig.get_size_inches()) * n_images)
         plt.show()
 
-    # show_images(images=lsit, cols=1)
-
 
 if __name__ == '__main__':
-    '''
-    'https://github.com/catalyst-team/catalyst/blob/master/examples/notebooks/segmentation-tutorial.ipynb'
-    a = dirs_to_pandaframe(
-        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/train/images/'],
-        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/train/masks/'])
+    c = dirs_to_pandaframe(['/home/alexanderh/Downloads/New Folder/READ-ICDAR2019-cBAD-dataset-blind/train/'],
+                           ['/home/alexanderh/Downloads/New Folder/READ-ICDAR2019-cBAD-dataset-blind/page/'])
 
-    b = dirs_to_pandaframe(
-        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/test/images/'],
-        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/test/masks/']
-    )
-    b = b[:20]
-    map = load_image_map_from_file(
-        '/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/image_map.json')
-    dt = MaskDataset(a, map, preprocessing=None, transform=compose([post_transforms()]))
-    d_test = MaskDataset(b, map, preprocessing=None, transform=compose([post_transforms()]))
-    '''
-    a = dirs_to_pandaframe(
-        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/train/image/'],
-        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/train/page/'])
-
-    b = dirs_to_pandaframe(
-        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/test/image/'],
-        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/test/page/'])
-
-    c = dirs_to_pandaframe(
-        ['/home/alexander/Dokumente/HBR2013/images/'],
-        ['/home/alexander/Dokumente/HBR2013/masks/']
-    )
-    d = dirs_to_pandaframe(
-        ['/home/alexander/Dokumente/dataset/test/image/'],
-        ['/home/alexander/Dokumente/dataset/test/mask/']
-    )
     e = dirs_to_pandaframe(
-        ['/mnt/sshfs/scratch/Datensets_Bildverarbeitung/page_segmentation/OCR-D/images/'],
-        ['/mnt/sshfs/scratch/Datensets_Bildverarbeitung/page_segmentation/OCR-D/images/']
+        ['/home/alexanderh/PycharmProjects/segmentation-pytorch/data/OCR-D/images'],
+        ['/home/alexanderh/PycharmProjects/segmentation-pytorch/data/OCR-D/images']
     )
+
     f = dirs_to_pandaframe(
-        ['/home/alexander/Dokumente/dataset/diva-his/all-privateTest/img-CB55-privateTest/CB55/'],
-        ['/home/alexander/Dokumente/dataset/diva-his/all-privateTest/img-CB55-privateTest/CB55/']
+        ['/home/alexanderh/PycharmProjects/segmentation-pytorch/data/OCR-D/image2'],
+        ['/home/alexanderh/PycharmProjects/segmentation-pytorch/data/OCR-D/image2']
     )
-    g = dirs_to_pandaframe(
-        ['/mnt/sshfs/hartelt/datasets/Tristrant_1484/images/',
-         '/mnt/sshfs/hartelt/datasets/Narrenschiff_1553/images/',
-         '/mnt/sshfs/hartelt/datasets/Narrenschiff_1512/images/',
-         '/mnt/sshfs/hartelt/datasets/Narrenschiff_1509/images/',
-         '/mnt/sshfs/hartelt/datasets/Melusina_1474/images/',
-         '/mnt/sshfs/hartelt/datasets/La_grant_nef_des_folz_du_monde_1499/images/',
-         '/mnt/sshfs/hartelt/datasets/Franck_Chronica_1536_2/images/',
-         '/mnt/sshfs/hartelt/datasets/Franck_Chronica_1536_1/images/',
-         '/mnt/sshfs/hartelt/datasets/Camerarius_Tusculanen_1538/images/',
-         '/mnt/sshfs/hartelt/datasets/Camerarius_Querela_Martini_Luteri_1555/images/',
-         '/mnt/sshfs/hartelt/datasets/Camerarius_Oratio_senatoria_de_bello_Turcico_1542/images/',
-         '/mnt/sshfs/hartelt/datasets/Camerarius_Oratio_in_declaratione_magistrorum_1563/images/',
-         '/mnt/sshfs/hartelt/datasets/Camerarius_Melanchthonvita_1566/images/',
-         '/mnt/sshfs/hartelt/datasets/Camerarius_Historiae_Iesu_1566/images/',
-         '/mnt/sshfs/hartelt/datasets/Camerarius_Epistulae_familiares_1595/images/',
-         '/mnt/sshfs/hartelt/datasets/Camerarius-Epistulae_Eobani-1561/images/',
-         '/mnt/sshfs/hartelt/datasets/Camerarius_Epistulae_1583/images/',
-         '/mnt/sshfs/hartelt/datasets/Camerarius_Epistolae_familiares_1583/images/',
-         '/mnt/sshfs/hartelt/datasets/Camerarius_Elementa_rhetoricae_1541/images/',
-         '/mnt/sshfs/hartelt/datasets/Camerarius_De_Helio_Eobano_Hesso_1553/images/',
-         '/mnt/sshfs/hartelt/datasets/Camerarius_Decuriae_1594/images/',
-         ],
-        ['/mnt/sshfs/hartelt/datasets/Tristrant_1484/masks/',
-         '/mnt/sshfs/hartelt/datasets/Narrenschiff_1553/masks/',
-         '/mnt/sshfs/hartelt/datasets/Narrenschiff_1512/masks/',
-         '/mnt/sshfs/hartelt/datasets/Narrenschiff_1509/masks/',
-         '/mnt/sshfs/hartelt/datasets/Melusina_1474/masks/',
-         '/mnt/sshfs/hartelt/datasets/La_grant_nef_des_folz_du_monde_1499/masks/',
-         '/mnt/sshfs/hartelt/datasets/Franck_Chronica_1536_2/masks/',
-         '/mnt/sshfs/hartelt/datasets/Franck_Chronica_1536_1/masks/',
-         '/mnt/sshfs/hartelt/datasets/Camerarius_Tusculanen_1538/masks/',
-         '/mnt/sshfs/hartelt/datasets/Camerarius_Querela_Martini_Luteri_1555/masks/',
-         '/mnt/sshfs/hartelt/datasets/Camerarius_Oratio_senatoria_de_bello_Turcico_1542/masks/',
-         '/mnt/sshfs/hartelt/datasets/Camerarius_Oratio_in_declaratione_magistrorum_1563/masks/',
-         '/mnt/sshfs/hartelt/datasets/Camerarius_Melanchthonvita_1566/masks/',
-         '/mnt/sshfs/hartelt/datasets/Camerarius_Historiae_Iesu_1566/masks/',
-         '/mnt/sshfs/hartelt/datasets/Camerarius_Epistulae_familiares_1595/masks/',
-         '/mnt/sshfs/hartelt/datasets/Camerarius-Epistulae_Eobani-1561/masks/',
-         '/mnt/sshfs/hartelt/datasets/Camerarius_Epistulae_1583/masks/',
-         '/mnt/sshfs/hartelt/datasets/Camerarius_Epistolae_familiares_1583/masks/',
-         '/mnt/sshfs/hartelt/datasets/Camerarius_Elementa_rhetoricae_1541/masks/',
-         '/mnt/sshfs/hartelt/datasets/Camerarius_De_Helio_Eobano_Hesso_1553/masks/',
-         '/mnt/sshfs/hartelt/datasets/Camerarius_Decuriae_1594/masks/',
-         ]
-    )
+
     map = load_image_map_from_file(
-        '/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/image_map.json')
+        '/home/alexanderh/PycharmProjects/segmentation-pytorch/data/OCR-D/image_map.json')
     from segmentation.dataset import base_line_transform
 
     settings = MaskSetting(MASK_TYPE=MaskType.BASE_LINE, PCGTS_VERSION=PCGTSVersion.PCGTS2013, LINEWIDTH=5,
                            BASELINELENGTH=10)
-    dt = XMLDataset(a, map, transform=compose([base_line_transform()]),
+    dt = XMLDataset(c, map, transform=compose([base_line_transform()]),
                     mask_generator=MaskGenerator(settings=settings))
-    d_test = XMLDataset(b, map, transform=compose([base_line_transform()]),
+    d_test = XMLDataset(c, map, transform=compose([base_line_transform()]),
                         mask_generator=MaskGenerator(settings=settings))
-    d_predict = MaskDataset(e[:15], map,
-                            transform=compose([base_line_transform()]))  # transform=compose([base_line_transform()]))
+    import pandas as pd
+
+    pd.set_option('display.max_colwidth', -1)  # or 199
+    d_predict = MaskDataset(f, map)
     from segmentation.settings import TrainSettings
 
     setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=dt, VAL_DATASET=d_test,
-                            OUTPUT_PATH="/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/ICDAR2019_b",
-                            MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/model9090.torch')
+                            OUTPUT_PATH="/home/alexanderh/PycharmProjects/segmentation-pytorch/data/effnet2.torch",
+                            MODEL_PATH='/home/alexanderh/PycharmProjects/segmentation-pytorch/data/effnet.torch.torch')
     p_setting = PredictorSettings(PREDICT_DATASET=d_predict,
-                                  MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/ICDAR2019_b.torch')
+                                  MODEL_PATH='/home/alexanderh/PycharmProjects/segmentation-pytorch/data/effnet.torch.torch')
     trainer = Network(p_setting, color_map=map)
-    #trainer.train()
     from PIL import Image
+    from segmentation.dataset import get_rescale_factor, rescale_pil
 
-    a = np.array(Image.open(a.get('images')[0]))
-    data = trainer.predict_single_image(a)
-    for x in trainer.predict():
-        print(x.shape)
+    image = Image.open(e.get('images')[0])
+    rescale_factor = get_rescale_factor(image)
+    image = np.array(rescale_pil(image, rescale_factor, 1))
+
+    data = trainer.predict_single_image(image)
+    from segmentation.postprocessing.baseline_extraction import extraxct_baselines_from_probability_map
+    from segmentation.postprocessing.text_border_estimation import text_border_estimation
+    from itertools import chain
+
+    ccs = extraxct_baselines_from_probability_map(data, original=image)
+    #left_border_ccs, right_border_ccs = text_border_estimation(ccs)
+
+    from PIL import Image, ImageDraw
+
+    im = Image.fromarray(np.uint8(image))
+    draw = ImageDraw.Draw(im)
+
+    colors = [(255, 0, 0),
+              (0, 255, 0),
+              (0, 0, 255),
+              (255, 255, 0),
+              (0, 255, 255),
+              (255, 0, 255)]
+    if len(ccs) != 0:
+        #for x in left_border_ccs:
+        #    top = x[0][0]
+        #    bot = x[-1][0]
+        #    min_x = min(top[0], bot[0])
+        #    draw.line([(min_x, top[1]), (min_x, bot[1])], fill=(255, 0, 0), width=2)
+
+        #for x in right_border_ccs:
+        #    top = x[0][-1]
+        #    bot = x[-1][-1]
+        #    max_x = max(top[0], bot[0])
+
+        #    draw.line([(max_x, top[1]), (max_x, bot[1])], fill=(255, 0, 0), width=2)
+        for ind, x in enumerate(ccs):
+            t = list(chain.from_iterable(x))
+            #a = t[::-1]
+            draw.line(t, fill=colors[ind % len(colors)], width=2)
+            pass
+        im.show()
