@@ -119,7 +119,7 @@ class MaskDataset(Dataset):
         mask = np.array(rescale_pil(mask, rescale_factor, 0))
         image = np.array(rescale_pil(image, rescale_factor, 1))
         image, mask = process(image, mask, rgb=self.rgb, preprocessing=self.preprocessing,
-                apply_preprocessing=apply_preprocessing, augmentation=self.augmentation, binary_augmentation=True)
+                apply_preprocessing=apply_preprocessing, augmentation=self.augmentation, binary_augmentation=True, color_map=self.color_map)
         return image, mask, torch.tensor(item)
 
     def __len__(self):
@@ -141,7 +141,8 @@ class MemoryDataset(Dataset):
         image = image_id
         mask = mask_id
         image, mask = process(image, mask, rgb=self.rgb, preprocessing=self.preprocessing,
-                apply_preprocessing=apply_preprocessing, augmentation=self.augmentation, binary_augmentation=True)
+                apply_preprocessing=apply_preprocessing, augmentation=self.augmentation, binary_augmentation=True,
+                              color_map=self.color_map)
 
         return image, mask, torch.tensor(item)
 
@@ -169,7 +170,7 @@ class XMLDataset(Dataset):
         image = np.array(rescale_pil(image, rescale_factor, 1))
 
         image, mask = process(image, mask, rgb=self.rgb, preprocessing=self.preprocessing,
-                apply_preprocessing=apply_preprocessing, augmentation=self.augmentation, binary_augmentation=True)
+                apply_preprocessing=apply_preprocessing, augmentation=self.augmentation, binary_augmentation=True, color_map=self.color_map)
         return image, mask, torch.tensor(item)
 
     def __len__(self):
@@ -195,7 +196,7 @@ class PredictDataset(Dataset):
         image = np.array(rescale_pil(image, rescale_factor, 1))
         mask = image
         image, mask = process(image, mask, rgb=self.rgb, preprocessing=self.preprocessing,
-                apply_preprocessing=apply_preprocessing, augmentation=None, binary_augmentation=True)
+                apply_preprocessing=apply_preprocessing, augmentation=None, binary_augmentation=True, color_map=self.color_map)
         return image, mask, torch.tensor(item)
 
     def __len__(self):
