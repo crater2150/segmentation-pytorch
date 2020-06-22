@@ -38,4 +38,3 @@ class PredictorSettings(NamedTuple):
 class BaseLineDetectionSettings(NamedTuple):
     MAXDISTANCE = 100
     ANGLE = 10
-

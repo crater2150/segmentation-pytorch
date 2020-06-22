@@ -76,7 +76,7 @@ class UpConv_woskip(nn.Module):
         super(UpConv_woskip, self).__init__()
 
         self.conv_trans = nn.ConvTranspose2d(
-            in_channels, out_channels, kernel_size=stride, padding=0, stride=stride) #calculate padding ?
+            in_channels, out_channels, kernel_size=stride, padding=0, stride=stride)  # calculate padding ?
 
     def forward(self, x):
         x = self.conv_trans(x)
@@ -145,17 +145,17 @@ class Attention(nn.Module):
         self.up1 = UpConv_woskip(8 * out_channels, out_channels, kernel_size, padding, stride=(8, 8))
 
     def forward(self, x):
-        #print('attention')
+        # print('attention')
         x = self.init_conv(x)
-        #print(x.shape)
+        # print(x.shape)
         x1 = self.down1(x)
-        #print(x1.shape)
+        # print(x1.shape)
         x2 = self.down2(x1)
-        #print(x2.shape)
+        # print(x2.shape)
         x3 = self.down3(x2)
-        #print(x3.shape)
+        # print(x3.shape)
         up1 = self.up1(x3)
-        #print(up1.shape)
+        # print(up1.shape)
 
         return up1
 
@@ -190,17 +190,19 @@ class AttentionUnet(nn.Module):
             x_d2 = self.dpool2(x_d1)
             x_d3 = self.dpool3(x_d2)
             # Encoder
-            #print(x.shape)
+            # print(x.shape)
             x_m = self.m1(x)
-            #print(x_m.shape)
+            # print(x_m.shape)
             x_a = self.a1(x)
-            #print(x_a.shape)
+            # print(x_a.shape)
 
             x1 = x_m * x_a
             x2 = self.m2(x_d1) * self.a2(x_d1)
             x3 = self.m3(x_d2) * self.a3(x_d2)
 
-            x4 = F.upsample_nearest(x1, x.shape[2:]) + F.upsample_nearest(x2, x.shape[2:]) + F.upsample_nearest(x3, x.shape[2:])
+            x4 = F.upsample_nearest(x1, x.shape[2:]) + F.upsample_nearest(x2, x.shape[2:]) + F.upsample_nearest(x3,
+                                                                                                                x.shape[
+                                                                                                                2:])
             x_out = F.log_softmax(self.out(x4), 1)
         else:
             x_out = self.m1(x)

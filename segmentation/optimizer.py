@@ -1,14 +1,12 @@
-
 import enum
-
-
-
 
 import torch, math
 from torch.optim.optimizer import Optimizer
 import torch
 from torch.optim.optimizer import Optimizer
 from collections import defaultdict
+
+
 # RAdam + LARS
 class Optimizers(enum.Enum):
     ADAM = 'adam'
@@ -24,6 +22,8 @@ class Optimizers(enum.Enum):
                 'ranger': Ranger,
                 'rangerlars': Over9000,
                 }[self.value]
+
+
 # Lookahead implementation from https://github.com/lonePatient/lookahead_pytorch/blob/master/optimizer.py
 # RAdam + LARS implementation from https://gist.github.com/redknightlois/c4023d393eb8f92bb44b2ab582d7ec20
 # RADAM + LARS + Lookahead https://github.com/mgrankin/over9000/blob/master/ranger.py
@@ -99,7 +99,9 @@ class Ralamb(Optimizer):
 
                     # more conservative since it's an approximated value
                     if N_sma >= 5:
-                        radam_step_size = math.sqrt((1 - beta2_t) * (N_sma - 4) / (N_sma_max - 4) * (N_sma - 2) / N_sma * N_sma_max / (N_sma_max - 2)) / (1 - beta1 ** state['step'])
+                        radam_step_size = math.sqrt(
+                            (1 - beta2_t) * (N_sma - 4) / (N_sma_max - 4) * (N_sma - 2) / N_sma * N_sma_max / (
+                                        N_sma_max - 2)) / (1 - beta1 ** state['step'])
                     else:
                         radam_step_size = 1.0 / (1 - beta1 ** state['step'])
                     buffered[2] = radam_step_size
@@ -141,6 +143,8 @@ class Ralamb(Optimizer):
     Implementation modified from: https://github.com/alphadl/lookahead.pytorch
     Paper: `Lookahead Optimizer: k steps forward, 1 step back` - https://arxiv.org/abs/1907.08610
     """
+
+
 import torch
 from collections import defaultdict
 from torch.optim.optimizer import Optimizer
@@ -204,7 +208,7 @@ class RAdam(Optimizer):
                     if N_sma >= 5:
                         step_size = math.sqrt(
                             (1 - beta2_t) * (N_sma - 4) / (N_sma_max - 4) * (N_sma - 2) / N_sma * N_sma_max / (
-                                        N_sma_max - 2)) / (1 - beta1 ** state['step'])
+                                    N_sma_max - 2)) / (1 - beta1 ** state['step'])
                     else:
                         step_size = 1.0 / (1 - beta1 ** state['step'])
                     buffered[2] = step_size
@@ -279,7 +283,7 @@ class PlainRAdam(Optimizer):
                 if N_sma >= 5:
                     step_size = group['lr'] * math.sqrt(
                         (1 - beta2_t) * (N_sma - 4) / (N_sma_max - 4) * (N_sma - 2) / N_sma * N_sma_max / (
-                                    N_sma_max - 2)) / (1 - beta1 ** state['step'])
+                                N_sma_max - 2)) / (1 - beta1 ** state['step'])
                     denom = exp_avg_sq.sqrt().add_(group['eps'])
                     p_data_fp32.addcdiv_(-step_size, exp_avg, denom)
                 else:
@@ -439,7 +443,6 @@ class Lookahead(Optimizer):
                 for group in self.param_groups:
                     group.setdefault(name, default)
 
-
-    #def LookaheadAdam(params, alpha=0.5, k=6, *args, **kwargs):
+    # def LookaheadAdam(params, alpha=0.5, k=6, *args, **kwargs):
     #    adam = Adam(params, *args, **kwargs)
     #    return Lookahead(adam, alpha, k)

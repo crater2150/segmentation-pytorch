@@ -22,6 +22,8 @@ import math
 from segmentation.preprocessing.basic_binarizer import gauss_threshold
 
 from segmentation.preprocessing.ocrupus import binarize
+
+
 # When training/testing/evaluationg on cpu set environment varialbe LRU_CACHE_CAPACITY=1
 # Needed for dynamicaly sized inputs, else memory leak
 def to_categorical(y, num_classes, torch=True):
@@ -37,7 +39,7 @@ def color_to_label(mask, colormap: dict):
 
     if mask.ndim == 2:
         return mask.astype(np.int32) / 255
-    
+
     if mask.shape[2] == 2:
         return mask[:, :, 0].astype(np.int32) / 255
     mask = mask.astype(np.uint32)
@@ -67,8 +69,7 @@ def default_preprocessing(x):
 
 
 def process(image, mask, rgb, preprocessing, apply_preprocessing, augmentation, color_map=None,
-            binary_augmentation= True):
-
+            binary_augmentation=True):
     if rgb:
         image = gray_to_rgb(image)
     result = {"image": image}
@@ -119,7 +120,8 @@ class MaskDataset(Dataset):
         mask = np.array(rescale_pil(mask, rescale_factor, 0))
         image = np.array(rescale_pil(image, rescale_factor, 1))
         image, mask = process(image, mask, rgb=self.rgb, preprocessing=self.preprocessing,
-                apply_preprocessing=apply_preprocessing, augmentation=self.augmentation, binary_augmentation=True, color_map=self.color_map)
+                              apply_preprocessing=apply_preprocessing, augmentation=self.augmentation,
+                              binary_augmentation=True, color_map=self.color_map)
         return image, mask, torch.tensor(item)
 
     def __len__(self):
@@ -141,7 +143,8 @@ class MemoryDataset(Dataset):
         image = image_id
         mask = mask_id
         image, mask = process(image, mask, rgb=self.rgb, preprocessing=self.preprocessing,
-                apply_preprocessing=apply_preprocessing, augmentation=self.augmentation, binary_augmentation=True,
+                              apply_preprocessing=apply_preprocessing, augmentation=self.augmentation,
+                              binary_augmentation=True,
                               color_map=self.color_map)
 
         return image, mask, torch.tensor(item)
@@ -151,7 +154,8 @@ class MemoryDataset(Dataset):
 
 
 class XMLDataset(Dataset):
-    def __init__(self, df, color_map, mask_generator: BaseMaskGenerator, preprocessing=default_preprocessing, transform=None, rgb=True):
+    def __init__(self, df, color_map, mask_generator: BaseMaskGenerator, preprocessing=default_preprocessing,
+                 transform=None, rgb=True):
         self.df = df
         self.color_map = color_map
         self.augmentation = transform
@@ -170,7 +174,8 @@ class XMLDataset(Dataset):
         image = np.array(rescale_pil(image, rescale_factor, 1))
 
         image, mask = process(image, mask, rgb=self.rgb, preprocessing=self.preprocessing,
-                apply_preprocessing=apply_preprocessing, augmentation=self.augmentation, binary_augmentation=True, color_map=self.color_map)
+                              apply_preprocessing=apply_preprocessing, augmentation=self.augmentation,
+                              binary_augmentation=True, color_map=self.color_map)
         return image, mask, torch.tensor(item)
 
     def __len__(self):
@@ -178,7 +183,8 @@ class XMLDataset(Dataset):
 
 
 class PredictDataset(Dataset):
-    def __init__(self, df, color_map, mask_generator: BaseMaskGenerator, preprocessing=default_preprocessing, transform=None, rgb=True, pad_factor: int = 32):
+    def __init__(self, df, color_map, mask_generator: BaseMaskGenerator, preprocessing=default_preprocessing,
+                 transform=None, rgb=True, pad_factor: int = 32):
         self.df = df
         self.color_map = color_map
         self.index = self.df.index.tolist()
@@ -187,7 +193,6 @@ class PredictDataset(Dataset):
         self.pad_factor = pad_factor
 
     def __getitem__(self, item, apply_preprocessing=True):
-
         image_id, mask_id = self.df.get('images')[item], self.df.get('masks')[item]
         l_factor = self.pad_factor
         image = Image.open(image_id)
@@ -196,7 +201,8 @@ class PredictDataset(Dataset):
         image = np.array(rescale_pil(image, rescale_factor, 1))
         mask = image
         image, mask = process(image, mask, rgb=self.rgb, preprocessing=self.preprocessing,
-                apply_preprocessing=apply_preprocessing, augmentation=None, binary_augmentation=True, color_map=self.color_map)
+                              apply_preprocessing=apply_preprocessing, augmentation=None, binary_augmentation=True,
+                              color_map=self.color_map)
         return image, mask, torch.tensor(item)
 
     def __len__(self):
@@ -276,13 +282,13 @@ def hard_transforms():
 
 def base_line_transform():
     result = [
-    albu.HorizontalFlip(),
-    albu.RandomGamma(),
-    albu.RandomBrightnessContrast(),
-    albu.OneOf([
+        albu.HorizontalFlip(),
+        albu.RandomGamma(),
+        albu.RandomBrightnessContrast(),
+        albu.OneOf([
             albu.ToGray(),
             albu.CLAHE()]),
-    albu.RandomScale(),
+        albu.RandomScale(),
     ]
     return result
 
@@ -460,7 +466,8 @@ if __name__ == '__main__':
     map = load_image_map_from_file(
         '/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/image_map.json')
 
-    settings = MaskSetting(MASK_TYPE=MaskType.BASE_LINE, PCGTS_VERSION=PCGTSVersion.PCGTS2013, LINEWIDTH=5, BASELINELENGTH=10)
+    settings = MaskSetting(MASK_TYPE=MaskType.BASE_LINE, PCGTS_VERSION=PCGTSVersion.PCGTS2013, LINEWIDTH=5,
+                           BASELINELENGTH=10)
     dt = XMLDataset(a, map, transform=compose([post_transforms()]), mask_generator=MaskGenerator(settings=settings))
     d_test = XMLDataset(b, map, transform=compose([post_transforms()]), mask_generator=MaskGenerator(settings=settings))
 

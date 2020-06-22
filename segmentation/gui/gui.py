@@ -4,21 +4,18 @@ from PIL import ImageTk, Image
 from segmentation.gui.xml_util import XMLGenerator
 from typing import Tuple, List
 import os
-#from segmentation.annotator import extract_textregions_from_path
 from enum import Enum
 import threading
-from shapely.geometry import Polygon
 import numpy as np
 from itertools import chain
 from shapely.geometry import LineString, box
-# to_dos:
-# add checkbox if inference shoould be run
-
+from segmentation.util import multiple_file_types
 
 class App:
     '''
     Contains the GUI Elements and updates the GUI
     '''
+
     def __init__(self, controller, root):
         # ---create GUI Layout ---
         self.root = root  # create window
@@ -42,15 +39,18 @@ class App:
                                        width=self.BUTTON_WIDTH,
                                        command=controller.delete_bl)
         self.new_baseline_button = Button(root, text="create Baselines", height=self.BUTTON_HEIGHT,
-                                            width=self.BUTTON_WIDTH,
-                                            command=controller.create_baseline)
+                                          width=self.BUTTON_WIDTH,
+                                          command=controller.create_baseline)
         self.new_con_baseline_button = Button(root, text="connects two Baselines", height=self.BUTTON_HEIGHT,
-                                            width=self.BUTTON_WIDTH,
-                                            command=controller.connect_baseline)
+                                              width=self.BUTTON_WIDTH,
+                                              command=controller.connect_baseline)
 
         self.new_split_baseline_button = Button(root, text="splits two Baselines", height=self.BUTTON_HEIGHT,
-                                            width=self.BUTTON_WIDTH,
-                                            command=controller.split_baseline)
+                                                width=self.BUTTON_WIDTH,
+                                                command=controller.split_baseline)
+        self.next_image = Button(root, text="Loads_next_image_in_directory", height=self.BUTTON_HEIGHT,
+                                 width=self.BUTTON_WIDTH,
+                                 command=controller.get_next_image)
         self.modify_Button = Button(root, text="modify", height=self.BUTTON_HEIGHT, width=self.BUTTON_WIDTH,
                                     command=controller.extend_baseline)
         self.save_Button = Button(root, text="save", height=self.BUTTON_HEIGHT, width=self.BUTTON_WIDTH,
@@ -64,6 +64,7 @@ class App:
         self.new_split_baseline_button.grid(row=9, column=1, padx=min(self.windowwidth / 5, 10), pady=0)
         self.set_save_dir_Button.grid(row=10, column=1, padx=min(self.windowwidth / 5, 10), pady=0)
         self.save_Button.grid(row=11, column=1, padx=min(self.windowwidth / 10, 5), pady=0)
+        self.next_image.grid(row=12, column=1, padx=min(self.windowwidth / 10, 5), pady=0)
         # create Labels
         self.state_label = Label(root, text='Start by loading an image', width=45, font=(None, 15))
         self.state_label.grid(row=2, rowspan=10, column=0, padx=10)
@@ -71,9 +72,10 @@ class App:
         self.warning_label.grid(row=11, rowspan=10, column=3, padx=10)
         # create Checkbutton
         self.run_inference = IntVar()
+        self.run_inference.set(1)
         self.run_inference_checkbutton = Checkbutton(root, text="annotate image when loading image",
                                                      variable=self.run_inference)
-        self.run_inference_checkbutton.grid(row=12, column=1, padx=min(self.windowwidth / 10, 5), pady=0)
+        self.run_inference_checkbutton.grid(row=13, column=1, padx=min(self.windowwidth / 10, 5), pady=0)
 
     def show_img(self, img):
         '''
@@ -99,6 +101,7 @@ class Controller:
     '''
     Controls the flow of the program.
     '''
+
     def __init__(self, root, network):
         self.app = App(self, root)
         self.root = root
@@ -117,6 +120,8 @@ class Controller:
 
         self.id_baselines = {}
         self.baselines = []
+
+        self.directory = None
 
         # variables to delete baselines
         self.line_coords = []
@@ -142,9 +147,12 @@ class Controller:
         '''
         if self.lock != States.LOAD_IMAGE and self.lock != States.NO_STATE:
             return
+
         filename = fd.askopenfilename()  # starts dialogwindow
         if filename == "":
             return
+        if self.directory is None:
+            self.directory = os.path.dirname(filename)
         thread = threading.Thread(target=self.load_img,
                                   name="Thread1",
                                   args=[filename])
@@ -159,20 +167,22 @@ class Controller:
         self.imageframe.delete("all")
         self.app.state_label.grid_remove()
 
-        #self.reset_imageframe()
+        # self.reset_imageframe()
         img = Image.open(filename)  # open image
-        self.im_name = os.path.basename(filename).split('.')[0]  # extract image name
+        self.im_name, self.suffix = os.path.basename(filename).split('.')  # extract image name
+
         def get_scaled_dimensions(imagex, imagey, imagex2, imagey2):
-            w_percent = imagex2/float(imagex)
-            h_percent = imagey2/float(imagey)
+            w_percent = imagex2 / float(imagex)
+            h_percent = imagey2 / float(imagey)
             scale = min(1.0, w_percent, h_percent)
-            w_size = int(float(imagex)*scale)
-            h_size = int(float(imagey)*scale)
+            w_size = int(float(imagex) * scale)
+            h_size = int(float(imagey) * scale)
             return h_size, w_size, scale
+
         self.im_width, self.im_height = img.size  # save image size
         h_size, w_size, scale = get_scaled_dimensions(self.im_width, self.im_height, self.imfr_width, self.imfr_height)
 
-        img = img.resize(( w_size, h_size), Image.BICUBIC)  # resize image to imageframe size
+        img = img.resize((w_size, h_size), Image.BICUBIC)  # resize image to imageframe size
         self.img = ImageTk.PhotoImage(img)  # tkinter needs PhotoImage
         self.app.show_img(self.img)
         if self.app.run_inference.get() == 0:
@@ -181,20 +191,24 @@ class Controller:
         # get the textregions already resized and resize to imageframe size
         self.lock = States.FULL_LOCK
         from segmentation.postprocessing.baseline_extraction import extraxct_baselines_from_probability_map
-        probmap, scale_factor= self.network.predict_single_image_by_path(filename)
+        probmap, scale_factor = self.network.predict_single_image_by_path(filename)
         baselines = extraxct_baselines_from_probability_map(probmap)
-        for ind, baseline in enumerate(baselines):
-            from segmentation.postprocessing.simplify_line import VWSimplifier
-            simplifier = VWSimplifier(np.asarray(baseline, dtype=np.float64))
-            np_baseline = simplifier.from_number(30)
-            baselines[ind] = list(np_baseline)
-            pass
+        if baselines and len(baselines) > 0:
+            for ind, baseline in enumerate(baselines):
+                from segmentation.postprocessing.simplify_line import VWSimplifier
+                simplifier = VWSimplifier(np.asarray(baseline, dtype=np.float64))
+                np_baseline = simplifier.from_number(5)
+                baselines[ind] = list(np_baseline)
+                pass
+        else:
+            baselines = []
 
         def scale_baselines(baselines, scale_factor=1.0):
             for b_idx, bline in enumerate(baselines):
                 for c_idx, coord in enumerate(bline):
-                    coord = (int(coord[0]*scale_factor), int(coord[1]*scale_factor))
+                    coord = (int(coord[0] * scale_factor), int(coord[1] * scale_factor))
                     baselines[b_idx][c_idx] = coord
+
         scale_baselines(baselines, 1 / scale_factor)
         scale_baselines(baselines, scale)
         self.scale = scale
@@ -229,23 +243,24 @@ class Controller:
     def baseline_delete_rec_on_button_release(self, event):
         if len(self.baselines) == 0:
             return
+
         def remove_items_from_list(list1, list2):
-                list2=[(int(x[0]), int(x[1]))for x in list2]
-                set1 = set(list1)
-                set2 = set(list2)
-                set3 = set1 - set2
-                ret = list(set3)
-                if list2[-1][0] <= list1[-1][0]  and list2[0][0] <= list1[0][0] :
-                    if list2[-1] not in ret:
-                        ret.append(list2[-1])
-                elif list2[-1][0] >= list1[-1][0]  and list2[0][0]  >= list1[0][0] :
-                    if list2[0] not in ret:
-                        ret.append(list2[0])
-                ret = sorted(ret, key=lambda x: x[0])
-                return ret
+            list2 = [(int(x[0]), int(x[1])) for x in list2]
+            set1 = set(list1)
+            set2 = set(list2)
+            set3 = set1 - set2
+            ret = list(set3)
+            if list2[-1][0] <= list1[-1][0] and list2[0][0] <= list1[0][0]:
+                if list2[-1] not in ret:
+                    ret.append(list2[-1])
+            elif list2[-1][0] >= list1[-1][0] and list2[0][0] >= list1[0][0]:
+                if list2[0] not in ret:
+                    ret.append(list2[0])
+            ret = sorted(ret, key=lambda x: x[0])
+            return ret
 
         coords = self.app.imageframe.coords(self.rect)
-        box_s = box(coords[0], coords[1],coords[2],coords[3])
+        box_s = box(coords[0], coords[1], coords[2], coords[3])
         for ind, baseline in enumerate(self.baselines):
             base_l = baseline
             if len(baseline) < 2:
@@ -258,7 +273,7 @@ class Controller:
                     continue
                 coords = list(inters.coords)
 
-                base_l= remove_items_from_list(base_l, coords)
+                base_l = remove_items_from_list(base_l, coords)
                 self.baselines[ind] = base_l
 
             pass
@@ -273,7 +288,7 @@ class Controller:
         self.start_y = event.y
         # create rectangle if not yet exist
         self.line_coords.append((self.start_x, self.start_y))
-        if len(self.line_coords) >=2:
+        if len(self.line_coords) >= 2:
             if not self.line:
                 self.line = self.app.imageframe.create_line(list(chain.from_iterable(self.line_coords)),
                                                             fill='green', width=3, tag="baseline")
@@ -281,7 +296,7 @@ class Controller:
                 self.app.imageframe.coords(self.line, list(chain.from_iterable(self.line_coords)))
 
     def baseline_create_on_button_press_right(self, event):
-        if len(self.line_coords) >=2:
+        if len(self.line_coords) >= 2:
             self.baselines.append(self.line_coords)
             self.draw_baslines()
         self.reset_bl_creation()
@@ -368,18 +383,19 @@ class Controller:
     def baseline_con_on_button_press(self, event):
         item = self.app.imageframe.find_closest(event.x, event.y)
         self.edit_item = item
-        self.app.imageframe.itemconfig(self.edit_item, fill="red")
+        try:  # sometimes error
+            self.app.imageframe.itemconfig(self.edit_item, fill="red")
+        except:
+            pass
         self.baseline_indexes.append(item[0])
-        if len(self.baseline_indexes)==2:
-
+        if len(self.baseline_indexes) == 2:
             index1 = self.baselines.index(self.id_baselines[self.baseline_indexes[0]])
             index2 = self.baselines.index(self.id_baselines[self.baseline_indexes[1]])
-            min_index = min(index1, index2) #just sort
+            min_index = min(index1, index2)  # just sort
             max_index = max(index1, index2)
 
             connected = self.id_baselines[self.baseline_indexes[0]] + self.id_baselines[self.baseline_indexes[1]]
-            print(connected)
-            self.baselines[min_index] = sorted(connected, key= lambda x:x[0])
+            self.baselines[min_index] = sorted(connected, key=lambda x: x[0])
             del self.baselines[max_index]
             self.reset_con_creation()
             self.draw_baslines()
@@ -404,11 +420,11 @@ class Controller:
             self.binder.bind([Binds.un_con_baseline])
             self.app.new_con_baseline_button.config(text="combine Basleine")
 
-
     def split_baseline_by_rec_on_button_release(self, event):
         baselines_new = []
         if len(self.baselines) == 0:
             return
+
         def split_lists(list1, list2):
             min_x = list2[0][0]
             max_x = list2[-1][0]
@@ -429,7 +445,7 @@ class Controller:
             return baseline1, baseline2
 
         coords = self.app.imageframe.coords(self.rect)
-        box_s = box(coords[0], coords[1],coords[2],coords[3])
+        box_s = box(coords[0], coords[1], coords[2], coords[3])
         for ind, baseline in enumerate(self.baselines):
             base_l = baseline
             if len(baseline) < 2:
@@ -472,6 +488,23 @@ class Controller:
             self.binder.bind([Binds.un_split_baseline])
             self.app.new_split_baseline_button.config(text="Split Basleine")
 
+    def get_next_image(self):
+        '''
+        displays next image
+        :return:
+        '''
+        if self.lock == States.NO_STATE or self.lock == States.LOAD_IMAGE:
+            files = list(multiple_file_types(os.path.join(self.directory,"*png"),os.path.join(self.directory, "*jpg")))
+            index = files.index(os.path.join(self.directory,self.im_name)+ "." + self.suffix)
+            index = index + 1 if len(files) - 1 > index else 0
+            filename = files[index + 1]
+            pass
+            # dir_path = fd.askdirectory()
+            # self.save_directory = dir_path
+            thread = threading.Thread(target=self.load_img,
+                                      name="Thread1",
+                                      args=[filename])
+            thread.start()
     def set_save_dir(self):
         '''
         sets up save directory mode
@@ -494,6 +527,7 @@ class Controller:
     def extract_xml_info(self):
         import copy
         cop_baselines = copy.deepcopy(self.baselines)
+        cop_baselines = [x for x in cop_baselines if len(x) > 0]
         scale_baselines(cop_baselines, 1 / self.scale)
 
         xmlgen = XMLGenerator(self.im_width, self.im_height, self.im_name, cop_baselines)
@@ -501,6 +535,8 @@ class Controller:
         print(xmlgen.baselines_to_xml_string())
         xmlgen.save_textregions_as_xml(self.save_directory)
         pass
+
+
 # Holds different Lock-States
 class States(Enum):
     '''
@@ -519,6 +555,7 @@ class Coord:
     '''
     Class which represents a coordinate. Can store the neighbouring coordinates.
     '''
+
     def __init__(self, coord):
         self.right = None
         self.left = None
@@ -564,10 +601,12 @@ class Binds(Enum):
     split_baseline = 33
     un_split_baseline = 34
 
+
 class Binder:
     '''
         Class which lets easily remove or add new key and mousebindings
     '''
+
     def __init__(self, root, imageframe, controller):
         self.root = root
         self.imfr = imageframe
@@ -628,24 +667,28 @@ def scale_baselines(baselines, scale_factor=1.0):
         for c_idx, coord in enumerate(bline):
             coord = (int(coord[0] * scale_factor), int(coord[1] * scale_factor))
             baselines[b_idx][c_idx] = coord
+
+
 if __name__ == "__main__":
     from segmentation.dataset import dirs_to_pandaframe, load_image_map_from_file, XMLDataset, MaskDataset
-    from segmentation.network import MaskSetting, PredictorSettings, Network, MaskType, PCGTSVersion, compose, MaskGenerator
-    c = dirs_to_pandaframe(['/home/alexanderh/Downloads/New Folder/READ-ICDAR2019-cBAD-dataset-blind/train/'],
-                           ['/home/alexanderh/Downloads/New Folder/READ-ICDAR2019-cBAD-dataset-blind/page/'])
-
-    e = dirs_to_pandaframe(
-        ['/home/alexanderh/PycharmProjects/segmentation-pytorch/data/OCR-D/images'],
-        ['/home/alexanderh/PycharmProjects/segmentation-pytorch/data/OCR-D/images']
-    )
+    from segmentation.network import MaskSetting, PredictorSettings, Network, MaskType, PCGTSVersion, compose, \
+        MaskGenerator
 
     f = dirs_to_pandaframe(
-        ['/home/alexanderh/PycharmProjects/segmentation-pytorch/data/OCR-D/image2'],
-        ['/home/alexanderh/PycharmProjects/segmentation-pytorch/data/OCR-D/image2']
+        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/train/image/'],
+        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/train/page/'])
+
+    e = dirs_to_pandaframe(
+        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/test/image/'],
+        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/test/page/'])
+
+    c = dirs_to_pandaframe(
+        ['/home/alexander/Dokumente/HBR2013/images/'],
+        ['/home/alexander/Dokumente/HBR2013/masks/']
     )
 
     map = load_image_map_from_file(
-        '/home/alexanderh/PycharmProjects/segmentation-pytorch/data/OCR-D/image_map.json')
+        '/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/image_map.json')
     from segmentation.dataset import base_line_transform
 
     settings = MaskSetting(MASK_TYPE=MaskType.BASE_LINE, PCGTS_VERSION=PCGTSVersion.PCGTS2013, LINEWIDTH=5,
@@ -658,13 +701,13 @@ if __name__ == "__main__":
 
     pd.set_option('display.max_colwidth', -1)  # or 199
     d_predict = MaskDataset(f, map)
-                            #transform=compose([base_line_transform()]))  # transform=compose([base_line_transform()]))
+    # transform=compose([base_line_transform()]))  # transform=compose([base_line_transform()]))
     from segmentation.settings import TrainSettings
 
     setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=dt, VAL_DATASET=d_test,
                             OUTPUT_PATH="/home/alexanderh/PycharmProjects/segmentation-pytorch/data/effnet2.torch",
                             MODEL_PATH='/home/alexanderh/PycharmProjects/segmentation-pytorch/data/effnet.torch.torch')
     p_setting = PredictorSettings(PREDICT_DATASET=d_predict,
-                                  MODEL_PATH='/home/alexanderh/PycharmProjects/segmentation-pytorch/data/effnet.torch.torch')
+                                  MODEL_PATH='/home/alexander/PycharmProjects/segmentation_pytorch/models/effnet2.torch.torch')
     trainer = Network(p_setting, color_map=map)
     start_GUI(network=trainer)

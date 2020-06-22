@@ -594,6 +594,7 @@ def plot_list(lsit):
 
 
 if __name__ == '__main__':
+    '''
     c = dirs_to_pandaframe(['/home/alexanderh/Downloads/New Folder/READ-ICDAR2019-cBAD-dataset-blind/train/'],
                            ['/home/alexanderh/Downloads/New Folder/READ-ICDAR2019-cBAD-dataset-blind/page/'])
 
@@ -674,3 +675,120 @@ if __name__ == '__main__':
             draw.line(t, fill=colors[ind % len(colors)], width=2)
             pass
         im.show()
+    '''
+    '''
+    'https://github.com/catalyst-team/catalyst/blob/master/examples/notebooks/segmentation-tutorial.ipynb'
+    a = dirs_to_pandaframe(
+        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/train/images/'],
+        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/train/masks/'])
+
+    b = dirs_to_pandaframe(
+        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/test/images/'],
+        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/test/masks/']
+    )
+    b = b[:20]
+    map = load_image_map_from_file(
+        '/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/image_map.json')
+    dt = MaskDataset(a, map, preprocessing=None, transform=compose([post_transforms()]))
+    d_test = MaskDataset(b, map, preprocessing=None, transform=compose([post_transforms()]))
+    '''
+    a = dirs_to_pandaframe(
+        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/train/image/'],
+        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/train/page/'])
+
+    b = dirs_to_pandaframe(
+        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/test/image/'],
+        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/test/page/'])
+
+    c = dirs_to_pandaframe(
+        ['/home/alexander/Dokumente/HBR2013/images/'],
+        ['/home/alexander/Dokumente/HBR2013/masks/']
+    )
+    d = dirs_to_pandaframe(
+        ['/home/alexander/Dokumente/dataset/test/image/'],
+        ['/home/alexander/Dokumente/dataset/test/mask/']
+    )
+    e = dirs_to_pandaframe(
+        ['/mnt/sshfs/scratch/Datensets_Bildverarbeitung/page_segmentation/OCR-D/images/'],
+        ['/mnt/sshfs/scratch/Datensets_Bildverarbeitung/page_segmentation/OCR-D/images/']
+    )
+    f = dirs_to_pandaframe(
+        ['/home/alexander/Dokumente/dataset/diva-his/all-privateTest/img-CB55-privateTest/CB55/'],
+        ['/home/alexander/Dokumente/dataset/diva-his/all-privateTest/img-CB55-privateTest/CB55/']
+    )
+    g = dirs_to_pandaframe(
+        ['/mnt/sshfs/hartelt/datasets/Tristrant_1484/images/',
+         '/mnt/sshfs/hartelt/datasets/Narrenschiff_1553/images/',
+         '/mnt/sshfs/hartelt/datasets/Narrenschiff_1512/images/',
+         '/mnt/sshfs/hartelt/datasets/Narrenschiff_1509/images/',
+         '/mnt/sshfs/hartelt/datasets/Melusina_1474/images/',
+         '/mnt/sshfs/hartelt/datasets/La_grant_nef_des_folz_du_monde_1499/images/',
+         '/mnt/sshfs/hartelt/datasets/Franck_Chronica_1536_2/images/',
+         '/mnt/sshfs/hartelt/datasets/Franck_Chronica_1536_1/images/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Tusculanen_1538/images/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Querela_Martini_Luteri_1555/images/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Oratio_senatoria_de_bello_Turcico_1542/images/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Oratio_in_declaratione_magistrorum_1563/images/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Melanchthonvita_1566/images/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Historiae_Iesu_1566/images/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Epistulae_familiares_1595/images/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius-Epistulae_Eobani-1561/images/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Epistulae_1583/images/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Epistolae_familiares_1583/images/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Elementa_rhetoricae_1541/images/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_De_Helio_Eobano_Hesso_1553/images/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Decuriae_1594/images/',
+         ],
+        ['/mnt/sshfs/hartelt/datasets/Tristrant_1484/masks/',
+         '/mnt/sshfs/hartelt/datasets/Narrenschiff_1553/masks/',
+         '/mnt/sshfs/hartelt/datasets/Narrenschiff_1512/masks/',
+         '/mnt/sshfs/hartelt/datasets/Narrenschiff_1509/masks/',
+         '/mnt/sshfs/hartelt/datasets/Melusina_1474/masks/',
+         '/mnt/sshfs/hartelt/datasets/La_grant_nef_des_folz_du_monde_1499/masks/',
+         '/mnt/sshfs/hartelt/datasets/Franck_Chronica_1536_2/masks/',
+         '/mnt/sshfs/hartelt/datasets/Franck_Chronica_1536_1/masks/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Tusculanen_1538/masks/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Querela_Martini_Luteri_1555/masks/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Oratio_senatoria_de_bello_Turcico_1542/masks/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Oratio_in_declaratione_magistrorum_1563/masks/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Melanchthonvita_1566/masks/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Historiae_Iesu_1566/masks/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Epistulae_familiares_1595/masks/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius-Epistulae_Eobani-1561/masks/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Epistulae_1583/masks/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Epistolae_familiares_1583/masks/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Elementa_rhetoricae_1541/masks/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_De_Helio_Eobano_Hesso_1553/masks/',
+         '/mnt/sshfs/hartelt/datasets/Camerarius_Decuriae_1594/masks/',
+         ]
+    )
+    map = load_image_map_from_file(
+        '/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/image_map.json')
+    from segmentation.dataset import base_line_transform
+
+    settings = MaskSetting(MASK_TYPE=MaskType.BASE_LINE, PCGTS_VERSION=PCGTSVersion.PCGTS2013, LINEWIDTH=5,
+                           BASELINELENGTH=10)
+    dt = XMLDataset(a, map, transform=compose([base_line_transform()]),
+                    mask_generator=MaskGenerator(settings=settings))
+    d_test = XMLDataset(b, map, transform=compose([base_line_transform()]),
+                        mask_generator=MaskGenerator(settings=settings))
+    import pandas as pd
+
+    pd.set_option('display.max_colwidth', -1)  # or 199
+    d_predict = MaskDataset(e, map)
+                            #transform=compose([base_line_transform()]))  # transform=compose([base_line_transform()]))
+    from segmentation.settings import TrainSettings
+
+    setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=dt, VAL_DATASET=d_test,
+                            OUTPUT_PATH="/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/ICDAR2019_b",
+                            MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/model9090.torch')
+    p_setting = PredictorSettings(PREDICT_DATASET=d_predict,
+                                  MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/ICDAR2019_b.torch')
+    trainer = Network(p_setting, color_map=map)
+    #trainer.train()
+    from PIL import Image
+
+    #a = np.array(Image.open(a.get('images')[0]))
+    #data = trainer.predict_single_image(a)
+    for x in trainer.predict():
+        print(x.shape)
