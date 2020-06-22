@@ -44,7 +44,7 @@ def triangle_areas_from_array(arr):
     see triangle_area for algorithm
     '''
     arr.astype(np.float64)
-    #print(arr.dtype)
+    # print(arr.dtype)
     result = np.empty((len(arr),), arr.dtype)
     result[0] = np.inf
     result[-1] = np.inf

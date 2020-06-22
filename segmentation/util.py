@@ -1,6 +1,8 @@
 import numpy as np
 import itertools
 from itertools import zip_longest
+import glob
+
 
 def angle_to(p1, p2):
     p2 = p2 - p1
@@ -41,11 +43,13 @@ def pairwise(iterable):
     next(b, None)
     return zip(a, b)
 
+
 def grouper(iterable, n, fillvalue=None):
     "Collect data into fixed-length chunks or blocks"
     # grouper('ABCDEFG', 3, 'x') --> ABC DEF Gxx"
     args = [iter(iterable)] * n
     return zip_longest(*args, fillvalue=fillvalue)
+
 
 def gray_to_rgb(img):
     if len(img.shape) != 3 or img.shape[2] != 3:
@@ -55,8 +59,12 @@ def gray_to_rgb(img):
         return img
 
 
+def multiple_file_types(*patterns):
+    return itertools.chain.from_iterable(glob.iglob(pattern) for pattern in patterns)
+
+
 def rgb2gray(rgb):
-    r, g, b = rgb[:,:,0], rgb[:,:,1], rgb[:,:,2]
+    r, g, b = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
     gray = 0.2989 * r + 0.5870 * g + 0.1140 * b
 
     return gray

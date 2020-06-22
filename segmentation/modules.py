@@ -4,6 +4,7 @@ from enum import Enum
 
 ENCODERS = smp.encoders.get_encoder_names()
 
+
 class Architecture(Enum):
     FPN = 'fpn'
     UNET = 'unet'

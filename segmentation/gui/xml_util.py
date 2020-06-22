@@ -10,6 +10,7 @@ class XMLGenerator:
     '''
     Creates and saves textregions to xml file
     '''
+
     def __init__(self, imageWidth: int, imageHeight: int, imageFilename: str, baselines):
         self.imageWidth = imageWidth
         self.imageHeight = imageHeight
@@ -34,7 +35,7 @@ class XMLGenerator:
         for i in range(0, len(self.baselines)):
             tr_node = ET.SubElement(page_node, "TextRegion", id="TextRegion" + str(i))
             ET.SubElement(ordered_group_node, "RegionRefIndexed", index=str(i), regionRef="TextRegion" + str(i))
-            #ET.SubElement(tr_node, "Coords", points=self.coords_to_string(region.coords))
+            # ET.SubElement(tr_node, "Coords", points=self.coords_to_string(region.coords))
             tl_node = ET.SubElement(tr_node, "TextLine", id="TextLine")
             ET.SubElement(tl_node, "Baseline", points=self.coords_to_string(self.baselines[i]))
         # annotate_with_XMLNS_prefixes(root_node, "pc", False)
@@ -61,7 +62,6 @@ class XMLGenerator:
         file = open(completeName, "w")
         file.write(output_String)
         file.close()
-
 
 
 def annotate_with_XMLNS_prefixes(tree, xmlns_prefix, skip_root_node=True):
