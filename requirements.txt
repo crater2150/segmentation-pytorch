@@ -1,6 +1,6 @@
-git+https://github.com/qubvel/segmentation_models.pytorch.git#egg=segmentation_models_pytorch
+segmentation-models-pytorch
 torch~=1.4.0
-git+https://github.com/Gawajn/pagexml_to_mask.git#egg=pagexml_to_mask
+PageXML-to-Mask-converter
 torchvision
 pillow~=6.2.1
 numpy~=1.17.4
