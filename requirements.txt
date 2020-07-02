@@ -1,5 +1,5 @@
 segmentation-models-pytorch
-torch~=1.4.0
+torch~=1.5.0
 PageXML-to-Mask-converter
 torchvision
 pillow~=6.2.1
