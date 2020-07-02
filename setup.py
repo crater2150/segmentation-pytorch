@@ -14,11 +14,6 @@ setup(
     author="Alexander Hartelt",
     author_email="alexander.hartelt@informatik.uni-wuerzburg.de",
     url="https://github.com/Gawajn/segmentation-pytorch",
-    entry_points={
-        'console_scripts': [
-            'pixel-classifier-torch=ocr4all_pixel_classifier.scripts.main:main',
-        ],
-    },
     install_requires=open("requirements.txt").read().split(),
     classifiers=[
         "Programming Language :: Python :: 3",
