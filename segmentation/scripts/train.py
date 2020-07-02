@@ -16,6 +16,7 @@ def dir_path(string):
 def main():
     from segmentation.network import TrainSettings, dirs_to_pandaframe, load_image_map_from_file, MaskSetting, MaskType, PCGTSVersion, XMLDataset, Network, compose, MaskGenerator, MaskDataset
     from segmentation.settings import Architecture
+    from segmentation.modules import ENCODERS
 
     parser = argparse.ArgumentParser()
     parser.add_argument("-L", "--l-rate", type=float, default=1e-4,
@@ -32,10 +33,10 @@ def main():
     parser.add_argument("--train_mask", type=dir_path, nargs="+", default=[], help="Path to folder(s) containing train xmls")
 
     parser.add_argument("--test_input", type=dir_path, nargs="*", default=[], help="Path to folder(s) containing test images")
-    parser.add_argument("--train_mask", type=dir_path, nargs="+", default=[], help="Path to folder(s) containing test xmls")
+    parser.add_argument("--test_mask", type=dir_path, nargs="+", default=[], help="Path to folder(s) containing test xmls")
 
-    parser.add_argument("--color-map", dest="map", type=str, default="image_map.json",
-                        help="color map to load")
+    parser.add_argument("--color-map", dest="map", type=str, required=True,
+                        help="path to color map to load")
     parser.add_argument('--architecture',
                         default=Architecture.UNET,
                         const=Architecture.UNET,
@@ -45,13 +46,14 @@ def main():
     parser.add_argument('--encoder',
                         default="efficientnet-b3",
                         const="efficientnet-b3",
+                        choices=ENCODERS,
+                        nargs='?',
                         help='Network architecture to use for training')
 
     args = parser.parse_args()
 
     train = dirs_to_pandaframe(args.train_input, args.train_mask)
-    test = dirs_to_pandaframe(args.test_input, args.train_mask) if len(args.test_input > 0) else train
-
+    test = dirs_to_pandaframe(args.test_input, args.train_mask) if len(args.test_input) > 0 else train
     map = load_image_map_from_file(args.map)
     from segmentation.dataset import base_line_transform
 
