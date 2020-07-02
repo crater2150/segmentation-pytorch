@@ -10,26 +10,23 @@ class Architecture(Enum):
     UNET = 'unet'
     PSPNET = 'pspnet'
     LINKNET = 'linknet'
-    PAN = 'pan'
 
     def get_architecture(self):
         return {'fpn': smp.FPN,
                 'unet': smp.Unet,
                 'pspnet': smp.PSPNet,
-                'linknet': smp.Linknet,
-                'pan': smp.PAN}[self.value]
+                'linknet': smp.Linknet}[self.value]
 
     @staticmethod
     def get_all_architectures():
-        return [smp.FPN, smp.Unet, smp.PSPNet, smp.Linknet, smp.PAN]
+        return [smp.FPN, smp.Unet, smp.PSPNet, smp.Linknet]
 
     def get_architecture_params(self):
         import inspect
         t = {'fpn': smp.FPN,
              'unet': smp.Unet,
              'pspnet': smp.PSPNet,
-             'linknet': smp.Linknet,
-             'pan': smp.PAN}[self.value]
+             'linknet': smp.Linknet}[self.value]
         signature = inspect.signature(t.__init__)
         a = dict()
         for name, parameter in signature.parameters.items():

@@ -13,3 +13,4 @@ tqdm~=4.38.0
 albumentations~=0.4.2
 scikit-image~=0.16.2
 opencv-python
+sklearn
