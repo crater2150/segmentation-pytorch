@@ -28,6 +28,13 @@ class TrainSettings(NamedTuple):
 
     PROCESSES: int = 4
 
+    def to_json_meta(self):
+
+        pass
+
+    def load_from_json(self, json):
+        pass
+
 
 class PredictorSettings(NamedTuple):
     PREDICT_DATASET: MaskDataset = None

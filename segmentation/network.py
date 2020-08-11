@@ -98,11 +98,11 @@ def test(model, device, test_loader, criterion):
 
     test_loss /= len(test_loader.dataset)
 
-    logger.info('\nTest set: Average loss: {:.4f}, Length of Test Set: {} ({:.6f}%)\n'.format(
+    logger.info('\nTest set: Average loss: {:.4f}, Length of Test Set: {} (Accuracy{:.6f}%)\n'.format(
         test_loss, len(test_loader.dataset),
         100. * correct / total))
 
-    return 100. * correct / total
+    return 100. * correct / total, test_loss.data.cpu().numpy()
 
 
 def train(model, device, train_loader, optimizer, epoch, criterion, accumulation_steps=8, color_map=None,
@@ -333,7 +333,7 @@ class Network(object):
         logger.info(str(self.model) + "\n")
         logger.info(str(self.model_params) + "\n")
         logger.info('Training started ...\n"')
-        for epoch in range(1, self.settings.EPOCHS):
+        for epoch in range(0, self.settings.EPOCHS):
             if self.settings.PSEUDO_DATASET is not None:
                 train_unlabeled(self.model, device=self.device, train_loader=train_loader,
                                 unlabeled_loader=pseudo_loader,
@@ -345,7 +345,7 @@ class Network(object):
                       accumulation_steps=self.settings.BATCH_ACCUMULATION,
                       color_map=self.color_map,
                       callback=callback)
-            accuracy = test(self.model, self.device, val_loader, criterion=criterion)
+            accuracy, loss = test(self.model, self.device, val_loader, criterion=criterion)
             if self.settings.OUTPUT_PATH is not None:
 
                 if accuracy > highest_accuracy:
@@ -360,6 +360,18 @@ class Network(object):
                     highest_accuracy = accuracy
                 if callback:
                     callback.on_epoch_end(epoch=epoch, acc=highest_accuracy)
+
+    def eval(self):
+        if not isinstance(self.settings, PredictorSettings):
+            logger.warning('Settings is of type: {}. Pass settings to network object of type Train to train'.format(
+                str(type(self.settings))))
+            return
+        criterion = nn.CrossEntropyLoss()
+        val_loader = data.DataLoader(dataset=self.settings.PREDICT_DATASET, batch_size=1,
+                                     shuffle=False)
+        accuracy, loss = test(self.model, self.device, val_loader, criterion=criterion)
+
+        return accuracy, loss
 
     def predict(self, tta_aug=None, debug=None):
         transforms = tta_aug
@@ -776,7 +788,7 @@ if __name__ == '__main__':
 
     pd.set_option('display.max_colwidth', -1)  # or 199
     d_predict = MaskDataset(e, map)
-                            #transform=compose([base_line_transform()]))  # transform=compose([base_line_transform()]))
+    # transform=compose([base_line_transform()]))  # transform=compose([base_line_transform()]))
     from segmentation.settings import TrainSettings
 
     setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=dt, VAL_DATASET=d_test,
@@ -785,10 +797,10 @@ if __name__ == '__main__':
     p_setting = PredictorSettings(PREDICT_DATASET=d_predict,
                                   MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/ICDAR2019_b.torch')
     trainer = Network(p_setting, color_map=map)
-    #trainer.train()
+    # trainer.train()
     from PIL import Image
 
-    #a = np.array(Image.open(a.get('images')[0]))
-    #data = trainer.predict_single_image(a)
+    # a = np.array(Image.open(a.get('images')[0]))
+    # data = trainer.predict_single_image(a)
     for x in trainer.predict():
         print(x.shape)
