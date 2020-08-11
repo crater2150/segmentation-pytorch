@@ -357,7 +357,14 @@ class Network(object):
                     with open(file, 'w') as filetowrite:
                         filetowrite.write('Encoder: ' + str(self.settings.ENCODER) + '\n' +
                                           'Architecture: ' + str(self.settings.ARCHITECTURE.value) + '\n' +
-                                          'Classes: ' + str(self.settings.CLASSES))
+                                          'Classes: ' + str(self.settings.CLASSES) + '\n' +
+                                          'Epochs: ' + str(self.settings.EPOCHS) + '\n' +
+                                          'Optimizer: ' + str(self.settings.OPTIMIZER.value) + '\n' +
+                                          'lr_encoder: ' + str(self.settings.LEARNINGRATE_ENCODER) + '\n' +
+                                          'lr_decoder: ' + str(self.settings.LEARNINGRATE_DECODER) + '\n' +
+                                          'lr_seghead: ' + str(self.settings.LEARNINGRATE_SEGHEAD) + '\n' +
+                                          'Batch_Accumulation: ' + str(self.settings.BATCH_ACCUMULATION)
+                                          )
 
                     highest_accuracy = accuracy
                 if callback:
