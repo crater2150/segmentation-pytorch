@@ -249,6 +249,8 @@ def train_unlabeled(model, device, train_loader, unlabeled_loader,
 
 
 def get_model(architecture, kwargs):
+    if architecture == architecture.FPN:
+        kwargs.pop("decoder_use_batchnorm")
     architecture = architecture.get_architecture()(**kwargs)
     return architecture
 
