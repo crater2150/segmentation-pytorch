@@ -14,3 +14,5 @@ albumentations~=0.4.2
 scikit-image~=0.16.2
 opencv-python
 sklearn
+ezodf
+lxml
