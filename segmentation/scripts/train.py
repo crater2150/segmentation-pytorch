@@ -7,6 +7,7 @@ import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 from segmentation.settings import PredictorSettings
 from segmentation.optimizer import Optimizers
+from sklearn.model_selection import KFold
 
 
 def dir_path(string):
@@ -39,7 +40,7 @@ def main():
 
     parser.add_argument("--test_input", type=dir_path, nargs="*", default=[],
                         help="Path to folder(s) containing test images")
-    parser.add_argument("--test_mask", type=dir_path, nargs="+", default=[],
+    parser.add_argument("--test_mask", type=dir_path, nargs="*", default=[],
                         help="Path to folder(s) containing test xmls")
 
     parser.add_argument("--color_map", dest="map", type=str, required=True,
@@ -60,9 +61,9 @@ def main():
                         choices=[x.value for x in list(Optimizers)])
     parser.add_argument('--batch_accumulation', default=1, type=int)
     parser.add_argument('--processes', default=1, type=int)
-
+    parser.add_argument('--folds', default=1, type=int)
     parser.add_argument('--eval', action="store_true", help="Starts evaluation on test set after training")
-
+    parser.add_argument('--seed', default=123, type=int)
     args = parser.parse_args()
     train = dirs_to_pandaframe(args.train_input, args.train_mask)
     test = dirs_to_pandaframe(args.test_input, args.test_mask)
@@ -70,28 +71,61 @@ def main():
 
     map = load_image_map_from_file(args.map)
     from segmentation.dataset import base_line_transform
-
     settings = MaskSetting(MASK_TYPE=MaskType.BASE_LINE, PCGTS_VERSION=PCGTSVersion.PCGTS2013, LINEWIDTH=5,
                            BASELINELENGTH=10)
-    train_dataset = XMLDataset(train, map, transform=compose([base_line_transform()]),
-                               mask_generator=MaskGenerator(settings=settings))
-    test_dataset = XMLDataset(test, map, transform=compose([base_line_transform()]),
-                              mask_generator=MaskGenerator(settings=settings))
+    model_paths = []
+    test_sets = []
+    if args.test_input == [] and args.folds > 1:
+        kf = KFold(n_splits=args.folds, shuffle=True, random_state=args.seed)
+        for ind, x in enumerate(kf.split(train, None)):
+            train_fold = train.iloc[x[0]].reset_index(drop=True)
+            test_fold = train.iloc[x[1]].reset_index(drop=True)
+            train_dataset = XMLDataset(train_fold, map, transform=compose([base_line_transform()]),
+                                       mask_generator=MaskGenerator(settings=settings))
+            test_dataset = XMLDataset(test_fold, map, transform=compose([base_line_transform()]),
+                                      mask_generator=MaskGenerator(settings=settings))
+            model_path = args.output + "_fold{}".format(ind)
+            setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=train_dataset, VAL_DATASET=test_dataset,
+                                    OUTPUT_PATH=model_path,
+                                    MODEL_PATH=args.load, EPOCHS=args.n_epoch,
+                                    OPTIMIZER=Optimizers(args.optimizer), BATCH_ACCUMULATION=args.batch_accumulation,
+                                    ENCODER=args.encoder,
+                                    ARCHITECTURE=Architecture(args.architecture), PROCESSES=args.processes)
+            trainer = Network(setting, color_map=map)
+            trainer.train()
+            model_paths.append(model_path)
+            test_sets.append(test_dataset)
 
-    setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=train_dataset, VAL_DATASET=test_dataset,
-                            OUTPUT_PATH=args.output,
-                            MODEL_PATH=args.load, EPOCHS=args.n_epoch,
-                            OPTIMIZER=Optimizers(args.optimizer), BATCH_ACCUMULATION=args.batch_accumulation,
-                            ENCODER=args.encoder,
-                            ARCHITECTURE=Architecture(args.architecture), PROCESSES=args.processes)
 
-    trainer = Network(setting, color_map=map)
-    trainer.train()
+    else:
+        train_dataset = XMLDataset(train, map, transform=compose([base_line_transform()]),
+                                   mask_generator=MaskGenerator(settings=settings))
+        test_dataset = XMLDataset(test, map, transform=compose([base_line_transform()]),
+                                  mask_generator=MaskGenerator(settings=settings))
+        model_path = args.output
+
+        setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=train_dataset, VAL_DATASET=test_dataset,
+                                OUTPUT_PATH=args.output,
+                                MODEL_PATH=args.load, EPOCHS=args.n_epoch,
+                                OPTIMIZER=Optimizers(args.optimizer), BATCH_ACCUMULATION=args.batch_accumulation,
+                                ENCODER=args.encoder,
+                                ARCHITECTURE=Architecture(args.architecture), PROCESSES=args.processes)
+
+        trainer = Network(setting, color_map=map)
+        trainer.train()
+        model_paths.append(model_path)
+        test_sets.append(test_dataset)
+
     if args.eval:
-        setting = PredictorSettings(PREDICT_DATASET=test_dataset, MODEL_PATH=args.output + ".torch")
-        predictor = Network(setting, color_map=map)
-        accuracy, loss = predictor.eval()
-        print("EXPERIMENT_OUT=" + str(accuracy) + "," + str(loss))
+        total_accuracy = 0
+        total_loss = 0
+        for ind, x in enumerate(model_paths):
+            setting = PredictorSettings(PREDICT_DATASET=test_sets[ind], MODEL_PATH= x + ".torch")
+            predictor = Network(setting, color_map=map)
+            accuracy, loss = predictor.eval()
+            total_accuracy += accuracy
+            total_loss += loss
+        print("EXPERIMENT_OUT=" + str(total_accuracy / len(model_paths)) + "," + str(total_loss / len(model_paths)))
 
 
 if __name__ == "__main__":
