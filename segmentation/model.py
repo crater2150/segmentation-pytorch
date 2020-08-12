@@ -242,15 +242,4 @@ def test():
         print('Epoch {}, Loss {}'.format(epoch, loss.item()))
 
 
-class Ensemble:
-    def __init__(self, models):
-        self.models = models
 
-    def __call__(self, x):
-        res = []
-        x = x.cuda()
-        with torch.no_grad():
-            for m in self.models:
-                res.append(m(x))
-        res = torch.stack(res)
-        return torch.mean(res, dim=0)
