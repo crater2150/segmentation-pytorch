@@ -26,7 +26,7 @@ class TrainSettings(NamedTuple):
     MODEL_PATH: str = None
     CUSTOM_MODEL: CustomModel = None
 
-    PROCESSES: int = 4
+    PROCESSES: int = 0
 
     def to_json_meta(self):
 
