@@ -10,6 +10,7 @@ from matplotlib import pyplot
 from segmentation.postprocessing.baseline_extraction import extraxct_baselines_from_probability_map
 from segmentation.settings import PredictorSettings
 import torch
+
 warnings.simplefilter(action='ignore', category=FutureWarning)
 import itertools
 import numpy as np
@@ -49,7 +50,8 @@ class Ensemble:
 
 
 def main():
-    from segmentation.network import TrainSettings, dirs_to_pandaframe, load_image_map_from_file, MaskSetting, MaskType, PCGTSVersion, XMLDataset, Network, compose, MaskGenerator, MaskDataset
+    from segmentation.network import TrainSettings, dirs_to_pandaframe, load_image_map_from_file, MaskSetting, MaskType, \
+        PCGTSVersion, XMLDataset, Network, compose, MaskGenerator, MaskDataset
     from segmentation.settings import Architecture
     from segmentation.modules import ENCODERS
     colors = [(255, 0, 0),
@@ -66,6 +68,9 @@ def main():
                         help="load models and use it for inference")
     parser.add_argument("--scale_area", type=int, default=1000000,
                         help="max pixel amount of an image")
+    parser.add_argument("--output_path", type=str, default=None)
+    parser.add_argument("--show_baselines", action="store_true")
+
     args = parser.parse_args()
     files = list(itertools.chain.from_iterable([glob.glob(x) for x in args.image_path]))
     networks = []
@@ -74,12 +79,12 @@ def main():
         network = Network(p_setting)
         networks.append(network)
     ensemble = Ensemble(networks)
-    for x in files:
-        p_map, scale_factor = ensemble(x, scale_area=args.scale_area)
+    for file in files:
+        p_map, scale_factor = ensemble(file, scale_area=args.scale_area)
         baselines = extraxct_baselines_from_probability_map(p_map)
         if baselines is not None and len(baselines) > 0:
             scale_baselines(baselines, 1 / scale_factor)
-            img = Image.open(x)  # open image
+            img = Image.open(file)  # open image
             img = img.convert('RGB')
             draw = ImageDraw.Draw(img)
 
@@ -87,9 +92,15 @@ def main():
                 t = list(itertools.chain.from_iterable(x))
                 a = t[::]
                 draw.line(a, fill=colors[ind % len(colors)], width=4)
-        array = np.array(img)
-        pyplot.imshow(array)
-        pyplot.show()
+            if args.output_path:
+                import os
+                basename = "debug_" + os.path.basename(file)
+                file_path = os.path.join(args.output_path, basename)
+                img.save(file_path)
+            if args.show_baselines:
+                array = np.array(img)
+                pyplot.imshow(array)
+                pyplot.show()
 
 
 if __name__ == "__main__":
