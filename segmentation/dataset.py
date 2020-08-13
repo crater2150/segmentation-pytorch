@@ -102,20 +102,21 @@ def process(image, mask, rgb, preprocessing, apply_preprocessing, augmentation, 
 
 
 class MaskDataset(Dataset):
-    def __init__(self, df, color_map, preprocessing=default_preprocessing, transform=None, rgb=True):
+    def __init__(self, df, color_map, preprocessing=default_preprocessing, transform=None, rgb=True, scale_area=1000000):
         self.df = df
         self.color_map = color_map
         self.augmentation = transform
         self.index = self.df.index.tolist()
         self.preprocessing = preprocessing
         self.rgb = rgb
+        self.scale_area = scale_area
 
     def __getitem__(self, item, apply_preprocessing=True):
         image_id, mask_id = self.df.get('images')[item], self.df.get('masks')[item]
 
         image = Image.open(image_id)
         mask = Image.open(mask_id)
-        rescale_factor = get_rescale_factor(image)
+        rescale_factor = get_rescale_factor(image, scale_area=self.scale_area)
 
         mask = np.array(rescale_pil(mask, rescale_factor, 0))
         image = np.array(rescale_pil(image, rescale_factor, 1))
@@ -129,19 +130,23 @@ class MaskDataset(Dataset):
 
 
 class MemoryDataset(Dataset):
-    def __init__(self, df, color_map=None, preprocessing=default_preprocessing, transform=None, rgb=True):
+    def __init__(self, df, color_map=None, preprocessing=default_preprocessing, transform=None, rgb=True, scale_area=1000000):
         self.df = df
         self.color_map = color_map
         self.augmentation = transform
         self.index = self.df.index.tolist()
         self.preprocessing = preprocessing
         self.rgb = rgb
+        self.scale_area = scale_area
 
     def __getitem__(self, item, apply_preprocessing=True):
         image_id, mask_id = self.df.get('images')[item], self.df.get('masks')[item]
 
         image = image_id
         mask = mask_id
+        rescale_factor = get_rescale_factor(image, scale_area=self.scale_area)
+        image = np.array(rescale_pil(Image.fromarray(image), rescale_factor, 1))
+
         image, mask = process(image, mask, rgb=self.rgb, preprocessing=self.preprocessing,
                               apply_preprocessing=apply_preprocessing, augmentation=self.augmentation,
                               binary_augmentation=True,
@@ -155,7 +160,7 @@ class MemoryDataset(Dataset):
 
 class XMLDataset(Dataset):
     def __init__(self, df, color_map, mask_generator: BaseMaskGenerator, preprocessing=default_preprocessing,
-                 transform=None, rgb=True):
+                 transform=None, rgb=True, scale_area=1000000):
         self.df = df
         self.color_map = color_map
         self.augmentation = transform
@@ -163,12 +168,13 @@ class XMLDataset(Dataset):
         self.preprocessing = preprocessing
         self.rgb = rgb
         self.mask_generator = mask_generator
+        self.scale_area = scale_area
 
     def __getitem__(self, item, apply_preprocessing=True):
         image_id, mask_id = self.df.get('images')[item], self.df.get('masks')[item]
 
         image = Image.open(image_id)
-        rescale_factor = get_rescale_factor(image)
+        rescale_factor = get_rescale_factor(image, scale_area=self.scale_area)
 
         mask = self.mask_generator.get_mask(mask_id, rescale_factor)
         image = np.array(rescale_pil(image, rescale_factor, 1))
@@ -184,19 +190,19 @@ class XMLDataset(Dataset):
 
 class PredictDataset(Dataset):
     def __init__(self, df, color_map, mask_generator: BaseMaskGenerator, preprocessing=default_preprocessing,
-                 transform=None, rgb=True, pad_factor: int = 32):
+                 transform=None, rgb=True, pad_factor: int = 32, scale_area=1000000):
         self.df = df
         self.color_map = color_map
         self.index = self.df.index.tolist()
         self.preprocessing = preprocessing
         self.rgb = rgb
         self.pad_factor = pad_factor
+        self.scale_area = scale_area
 
     def __getitem__(self, item, apply_preprocessing=True):
         image_id, mask_id = self.df.get('images')[item], self.df.get('masks')[item]
-        l_factor = self.pad_factor
         image = Image.open(image_id)
-        rescale_factor = get_rescale_factor(image)
+        rescale_factor = get_rescale_factor(image, self.scale_area)
 
         image = np.array(rescale_pil(image, rescale_factor, 1))
         mask = image
@@ -209,10 +215,10 @@ class PredictDataset(Dataset):
         return len(self.index)
 
 
-def get_rescale_factor(pil_image):
+def get_rescale_factor(pil_image, scale_area=1000000):
     rescale_factor = 1.0
-    if (pil_image.size[1] * pil_image.size[0]) >= 1000000:
-        rescale_factor = math.sqrt(1000000 / (pil_image.size[1] * pil_image.size[0]))
+    if (pil_image.size[1] * pil_image.size[0]) >= scale_area:
+        rescale_factor = math.sqrt(scale_area / (pil_image.size[1] * pil_image.size[0]))
     return rescale_factor
 
 

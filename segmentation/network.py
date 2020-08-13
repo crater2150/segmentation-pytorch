@@ -472,7 +472,7 @@ class Network(object):
                                 draw.line([(max_x, top[0]), (max_x, bot[0])], fill=(255, 0, 0), width=2)
                             for ind, x in enumerate(ccs):
                                 t = list(chain.from_iterable(x))
-                                a = t[::-1]
+                                a = t[::]
                                 draw.line(a, fill=colors[ind % len(colors)], width=2)
                                 pass
                             im.show()
@@ -519,7 +519,8 @@ class Network(object):
             import ttach as tta
             transforms = tta.Compose(
                 [
-                    tta.Scale(scales=[1]),
+                    tta.Scale(scales=[0.95, 1, 1.05]),
+                    tta.HorizontalFlip(),
                 ]
             )
         self.model.eval()
@@ -557,11 +558,12 @@ class Network(object):
 
             return out
 
-    def predict_single_image_by_path(self, path, rgb=True, preprocessing=True, tta_aug=None):
+    def predict_single_image_by_path(self, path, rgb=True, preprocessing=True, tta_aug=None, scale_area=1000000):
         from PIL import Image
         from segmentation.dataset import get_rescale_factor, rescale_pil
+        from segmentation.util import gray_to_rgb
         image = Image.open(path)
-        rescale_factor = get_rescale_factor(image)
+        rescale_factor = get_rescale_factor(image, scale_area=scale_area)
         image = np.array(rescale_pil(image, rescale_factor, 1))
         return self.predict_single_image(image, rgb=rgb, preprocessing=preprocessing, tta_aug=tta_aug), rescale_factor
 
@@ -615,104 +617,6 @@ def plot_list(lsit):
 
 
 if __name__ == '__main__':
-    '''
-    c = dirs_to_pandaframe(['/home/alexanderh/Downloads/New Folder/READ-ICDAR2019-cBAD-dataset-blind/train/'],
-                           ['/home/alexanderh/Downloads/New Folder/READ-ICDAR2019-cBAD-dataset-blind/page/'])
-
-    e = dirs_to_pandaframe(
-        ['/home/alexanderh/PycharmProjects/segmentation-pytorch/data/OCR-D/images'],
-        ['/home/alexanderh/PycharmProjects/segmentation-pytorch/data/OCR-D/images']
-    )
-
-    f = dirs_to_pandaframe(
-        ['/home/alexanderh/PycharmProjects/segmentation-pytorch/data/OCR-D/image2'],
-        ['/home/alexanderh/PycharmProjects/segmentation-pytorch/data/OCR-D/image2']
-    )
-
-    map = load_image_map_from_file(
-        '/home/alexanderh/PycharmProjects/segmentation-pytorch/data/OCR-D/image_map.json')
-    from segmentation.dataset import base_line_transform
-
-    settings = MaskSetting(MASK_TYPE=MaskType.BASE_LINE, PCGTS_VERSION=PCGTSVersion.PCGTS2013, LINEWIDTH=5,
-                           BASELINELENGTH=10)
-    dt = XMLDataset(c, map, transform=compose([base_line_transform()]),
-                    mask_generator=MaskGenerator(settings=settings))
-    d_test = XMLDataset(c, map, transform=compose([base_line_transform()]),
-                        mask_generator=MaskGenerator(settings=settings))
-    import pandas as pd
-
-    pd.set_option('display.max_colwidth', -1)  # or 199
-    d_predict = MaskDataset(f, map)
-    from segmentation.settings import TrainSettings
-
-    setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=dt, VAL_DATASET=d_test,
-                            OUTPUT_PATH="/home/alexanderh/PycharmProjects/segmentation-pytorch/data/effnet2.torch",
-                            MODEL_PATH='/home/alexanderh/PycharmProjects/segmentation-pytorch/data/effnet.torch.torch')
-    p_setting = PredictorSettings(PREDICT_DATASET=d_predict,
-                                  MODEL_PATH='/home/alexanderh/PycharmProjects/segmentation-pytorch/data/effnet.torch.torch')
-    trainer = Network(p_setting, color_map=map)
-    from PIL import Image
-    from segmentation.dataset import get_rescale_factor, rescale_pil
-
-    image = Image.open(e.get('images')[0])
-    rescale_factor = get_rescale_factor(image)
-    image = np.array(rescale_pil(image, rescale_factor, 1))
-
-    data = trainer.predict_single_image(image)
-    from segmentation.postprocessing.baseline_extraction import extraxct_baselines_from_probability_map
-    from segmentation.postprocessing.text_border_estimation import text_border_estimation
-    from itertools import chain
-
-    ccs = extraxct_baselines_from_probability_map(data, original=image)
-    #left_border_ccs, right_border_ccs = text_border_estimation(ccs)
-
-    from PIL import Image, ImageDraw
-
-    im = Image.fromarray(np.uint8(image))
-    draw = ImageDraw.Draw(im)
-
-    colors = [(255, 0, 0),
-              (0, 255, 0),
-              (0, 0, 255),
-              (255, 255, 0),
-              (0, 255, 255),
-              (255, 0, 255)]
-    if len(ccs) != 0:
-        #for x in left_border_ccs:
-        #    top = x[0][0]
-        #    bot = x[-1][0]
-        #    min_x = min(top[0], bot[0])
-        #    draw.line([(min_x, top[1]), (min_x, bot[1])], fill=(255, 0, 0), width=2)
-
-        #for x in right_border_ccs:
-        #    top = x[0][-1]
-        #    bot = x[-1][-1]
-        #    max_x = max(top[0], bot[0])
-
-        #    draw.line([(max_x, top[1]), (max_x, bot[1])], fill=(255, 0, 0), width=2)
-        for ind, x in enumerate(ccs):
-            t = list(chain.from_iterable(x))
-            #a = t[::-1]
-            draw.line(t, fill=colors[ind % len(colors)], width=2)
-            pass
-        im.show()
-    '''
-    '''
-    'https://github.com/catalyst-team/catalyst/blob/master/examples/notebooks/segmentation-tutorial.ipynb'
-    a = dirs_to_pandaframe(
-        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/train/images/'],
-        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/train/masks/'])
-
-    b = dirs_to_pandaframe(
-        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/test/images/'],
-        ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/test/masks/']
-    )
-    b = b[:20]
-    map = load_image_map_from_file(
-        '/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/dataset-test/image_map.json')
-    dt = MaskDataset(a, map, preprocessing=None, transform=compose([post_transforms()]))
-    d_test = MaskDataset(b, map, preprocessing=None, transform=compose([post_transforms()]))
-    '''
     a = dirs_to_pandaframe(
         ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/train/image/'],
         ['/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/train/page/'])
@@ -804,7 +708,7 @@ if __name__ == '__main__':
                             OUTPUT_PATH="/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/ICDAR2019_b",
                             MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/model9090.torch')
     p_setting = PredictorSettings(PREDICT_DATASET=d_predict,
-                                  MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/adam_fpn_efficientnet-b3_40_8.torch')
+                                  MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/ICDAR2019_b.torch')
     trainer = Network(p_setting, color_map=map)
     # trainer.train()
     from PIL import Image

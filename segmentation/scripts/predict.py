@@ -35,11 +35,11 @@ class Ensemble:
     def __init__(self, models):
         self.models = models
 
-    def __call__(self, x):
+    def __call__(self, x, scale_area):
         res = []
         scale_factor = None
         for m in self.models:
-            p_map, s_factor = m.predict_single_image_by_path(x, rgb=True, preprocessing=True)
+            p_map, s_factor = m.predict_single_image_by_path(x, rgb=True, preprocessing=True, scale_area=1000000)
             scale_factor = s_factor
             res.append(p_map)
         if len(res) == 1:
@@ -64,6 +64,8 @@ def main():
                         help="load models and use it for inference")
     parser.add_argument("--image_path", type=str, nargs="*", default=[],
                         help="load models and use it for inference")
+    parser.add_argument("--scale_area", type=int, default=1000000,
+                        help="max pixel amount of an image")
     args = parser.parse_args()
     files = list(itertools.chain.from_iterable([glob.glob(x) for x in args.image_path]))
     networks = []
@@ -73,12 +75,14 @@ def main():
         networks.append(network)
     ensemble = Ensemble(networks)
     for x in files:
-        p_map, scale_factor = ensemble(x)
+        p_map, scale_factor = ensemble(x, scale_area=args.scale_area)
         baselines = extraxct_baselines_from_probability_map(p_map)
         if baselines is not None and len(baselines) > 0:
             scale_baselines(baselines, 1 / scale_factor)
             img = Image.open(x)  # open image
+            img = img.convert('RGB')
             draw = ImageDraw.Draw(img)
+
             for ind, x in enumerate(baselines):
                 t = list(itertools.chain.from_iterable(x))
                 a = t[::]

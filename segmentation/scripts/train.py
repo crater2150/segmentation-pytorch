@@ -63,6 +63,8 @@ def main():
     parser.add_argument('--processes', default=1, type=int)
     parser.add_argument('--folds', default=1, type=int)
     parser.add_argument('--eval', action="store_true", help="Starts evaluation on test set after training")
+    parser.add_argument("--scale_area", type=int, default=1000000,
+                        help="max pixel amount of an image")
     parser.add_argument('--seed', default=123, type=int)
     args = parser.parse_args()
     train = dirs_to_pandaframe(args.train_input, args.train_mask)
@@ -81,9 +83,9 @@ def main():
             train_fold = train.iloc[x[0]].reset_index(drop=True)
             test_fold = train.iloc[x[1]].reset_index(drop=True)
             train_dataset = XMLDataset(train_fold, map, transform=compose([base_line_transform()]),
-                                       mask_generator=MaskGenerator(settings=settings))
+                                       mask_generator=MaskGenerator(settings=settings), scale_area=args.scale_area)
             test_dataset = XMLDataset(test_fold, map, transform=compose([base_line_transform()]),
-                                      mask_generator=MaskGenerator(settings=settings))
+                                      mask_generator=MaskGenerator(settings=settings), scale_area=args.scale_area)
             model_path = args.output + "_fold{}".format(ind)
             setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=train_dataset, VAL_DATASET=test_dataset,
                                     OUTPUT_PATH=model_path,
