@@ -25,6 +25,7 @@ class TrainSettings(NamedTuple):
     ENCODER: str = 'efficientnet-b3'
     MODEL_PATH: str = None
     CUSTOM_MODEL: CustomModel = None
+    IMAGEMAX_AREA = 1000000
 
     PROCESSES: int = 0
 
