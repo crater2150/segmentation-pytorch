@@ -5,23 +5,16 @@ from collections.abc import Iterable
 import torch
 import torch.nn as nn
 from torch.utils import data
-import logging
 from segmentation.settings import TrainSettings, PredictorSettings
 import segmentation_models_pytorch as sm
 from segmentation.dataset import label_to_colors, XMLDataset
-from typing import Union
+from typing import Union, Tuple
 import numpy as np
 from pagexml_mask_converter.pagexml_to_mask import MaskGenerator, MaskSetting, BaseMaskGenerator, MaskType, PCGTSVersion
 
 from matplotlib import pyplot as plt
+from segmentation.util import logger
 
-logger = logging.getLogger(__name__)
-logFormatter = logging.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s")
-console_logger = logging.StreamHandler()
-console_logger.setFormatter(logFormatter)
-console_logger.terminator = ""
-logger.setLevel(logging.DEBUG)
-logger.addHandler(console_logger)
 
 
 class TrainProgressCallback:
@@ -251,6 +244,8 @@ def train_unlabeled(model, device, train_loader, unlabeled_loader,
 def get_model(architecture, kwargs):
     if architecture == architecture.FPN:
         kwargs.pop("decoder_use_batchnorm")
+    kwargs = {k: v for k, v in kwargs.items() if v is not None}
+
     architecture = architecture.get_architecture()(**kwargs)
     return architecture
 
@@ -259,37 +254,52 @@ class Network(object):
 
     def __init__(self, settings: Union[TrainSettings, PredictorSettings], color_map=None):
         from segmentation.modules import Architecture
-
         self.settings = settings
+        json_file = None
         architecture: Architecture = None
         encoder: str = None
         classes: int = None
+        encoder_depth: int = None
+        decoder_channel: Tuple[int, ...] = None
         if isinstance(settings, PredictorSettings):
+
             import os
-            with open(str(os.path.splitext(settings.MODEL_PATH)[0]) + '.meta', 'r') as f:
-                for x in f.readlines():
-                    x = x.strip('\n')
-                    if x.startswith('Encoder'):
-                        encoder = x.split(" ")[1]
-                    if x.startswith('Architecture'):
-                        architecture = Architecture(x.split(" ")[1])
-                    if x.startswith('Classes'):
-                        classes = int(x.split(" ")[1])
+            if os.path.exists(os.path.splitext(settings.MODEL_PATH)[0] + '.meta'):
+                with open(str(os.path.splitext(settings.MODEL_PATH)[0]) + '.meta', 'r') as f:
+                    for x in f.readlines():
+                        x = x.strip('\n')
+                        if x.startswith('Encoder'):
+                            encoder = x.split(" ")[1]
+                        if x.startswith('Architecture'):
+                            architecture = Architecture(x.split(" ")[1])
+                        if x.startswith('Classes'):
+                            classes = int(x.split(" ")[1])
+            elif os.path.exists(os.path.splitext(settings.MODEL_PATH)[0] + '.json'):
+                with open(str(os.path.splitext(settings.MODEL_PATH)[0]) + '.json', 'r') as f:
+                    import json
+                    json_file = json.load(f)
             if self.settings.PREDICT_DATASET is not None:
-                self.settings.PREDICT_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(encoder)
+                self.settings.PREDICT_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(encoder if encoder else
+                                                                                               json_file["ENCODER"])
         elif isinstance(settings, TrainSettings):
             encoder = self.settings.ENCODER
             architecture = self.settings.ARCHITECTURE
             classes = self.settings.CLASSES
+            encoder_depth = self.settings.ENCODER_DEPTH
+            decoder_channel = self.settings.DECODER_CHANNELS
             self.settings.TRAIN_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(self.settings.ENCODER)
             self.settings.VAL_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(self.settings.ENCODER)
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(device)
+        logger.info('Device: {} is used for training/prediction\n'.format(device))
+        architecture = architecture if architecture else Architecture(json_file["ARCHITECTURE"])
+
         self.device = torch.device(device)
         self.model_params = architecture.get_architecture_params()
-        self.model_params['classes'] = classes
+        self.model_params['classes'] = classes if classes else json_file["CLASSES"]
         self.model_params['decoder_use_batchnorm'] = False
-        self.model_params['encoder_name'] = encoder
+        self.model_params['encoder_name'] = encoder if encoder else json_file["ENCODER"]
+        self.model_params['encoder_depth'] = json_file["ENCODER_DEPTH"] if json_file else encoder_depth
+        #   PÜelf.model_params['decoder_channels'] = json_file["DECODER_CHANNELS"] if json_file else decoder_channel
         self.model = get_model(architecture, self.model_params)
         if self.settings.MODEL_PATH:
             try:
@@ -353,18 +363,9 @@ class Network(object):
                 if accuracy > highest_accuracy:
                     logger.info('Saving model to {}\n'.format(self.settings.OUTPUT_PATH + ".torch"))
                     torch.save(self.model.state_dict(), self.settings.OUTPUT_PATH + ".torch")
-                    file = self.settings.OUTPUT_PATH + '.meta'
+                    file = self.settings.OUTPUT_PATH + '.json'
                     with open(file, 'w') as filetowrite:
-                        filetowrite.write('Encoder: ' + str(self.settings.ENCODER) + '\n' +
-                                          'Architecture: ' + str(self.settings.ARCHITECTURE.value) + '\n' +
-                                          'Classes: ' + str(self.settings.CLASSES) + '\n' +
-                                          'Epochs: ' + str(self.settings.EPOCHS) + '\n' +
-                                          'Optimizer: ' + str(self.settings.OPTIMIZER.value) + '\n' +
-                                          'lr_encoder: ' + str(self.settings.LEARNINGRATE_ENCODER) + '\n' +
-                                          'lr_decoder: ' + str(self.settings.LEARNINGRATE_DECODER) + '\n' +
-                                          'lr_seghead: ' + str(self.settings.LEARNINGRATE_SEGHEAD) + '\n' +
-                                          'Batch_Accumulation: ' + str(self.settings.BATCH_ACCUMULATION)
-                                          )
+                        filetowrite.write(self.settings.to_json())
 
                     highest_accuracy = accuracy
                 if callback:
@@ -546,8 +547,8 @@ class Network(object):
                 output = unpad(output, shape)
                 reversed = transformer.deaugment_mask(output)
                 reversed = torch.nn.functional.interpolate(reversed, size=list(o_shape)[2:], mode="nearest")
-                print("original: {} input: {}, padded: {} unpadded {} output {}".format(str(o_shape),
-                                                                                        str(shape), str(
+                logger.debug("original: {} input: {}, padded: {} unpadded {} output {} \n".format(str(o_shape),
+                                                                                                  str(shape), str(
                         list(augmented_image.shape)), str(list(output.shape)), str(list(reversed.shape))))
                 outputs.append(reversed)
             stacked = torch.stack(outputs)
@@ -558,13 +559,18 @@ class Network(object):
 
             return out
 
-    def predict_single_image_by_path(self, path, rgb=True, preprocessing=True, tta_aug=None, scale_area=1000000):
+    def predict_single_image_by_path(self, path, rgb=True, preprocessing=True, tta_aug=None, scale_area=1000000,
+                                     additional_scale_factor=None):
         from PIL import Image
         from segmentation.dataset import get_rescale_factor, rescale_pil
         from segmentation.util import gray_to_rgb
         image = Image.open(path)
+
         rescale_factor = get_rescale_factor(image, scale_area=scale_area)
+        if additional_scale_factor is not None:
+            rescale_factor = rescale_factor * additional_scale_factor
         image = np.array(rescale_pil(image, rescale_factor, 1))
+
         return self.predict_single_image(image, rgb=rgb, preprocessing=preprocessing, tta_aug=tta_aug), rescale_factor
 
 
@@ -693,9 +699,9 @@ if __name__ == '__main__':
 
     settings = MaskSetting(MASK_TYPE=MaskType.BASE_LINE, PCGTS_VERSION=PCGTSVersion.PCGTS2013, LINEWIDTH=5,
                            BASELINELENGTH=10)
-    dt = XMLDataset(a, map, transform=compose([base_line_transform()]),
+    dt = XMLDataset(a[:10], map, transform=compose([base_line_transform()]),
                     mask_generator=MaskGenerator(settings=settings))
-    d_test = XMLDataset(b, map, transform=compose([base_line_transform()]),
+    d_test = XMLDataset(b[:5], map, transform=compose([base_line_transform()]),
                         mask_generator=MaskGenerator(settings=settings))
     import pandas as pd
 
@@ -705,12 +711,14 @@ if __name__ == '__main__':
     from segmentation.settings import TrainSettings
 
     setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=dt, VAL_DATASET=d_test,
-                            OUTPUT_PATH="/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/ICDAR2019_b",
-                            MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/model9090.torch')
+                            OUTPUT_PATH="/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/ICDAR2019_b2_ed7",
+                            MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/ICDAR2019_b2_ed6.torch',
+                            ENCODER_DEPTH=5)  # ENCODER_DEPTH=6, DECODER_CHANNELS=(256, 128, 64, 32, 16, 8))
+
     p_setting = PredictorSettings(PREDICT_DATASET=d_predict,
-                                  MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/ICDAR2019_b.torch')
+                                  MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/ICDAR2019_b2_ed6.torch')
     trainer = Network(p_setting, color_map=map)
-    # trainer.train()
+    #trainer.train()
     from PIL import Image
 
     # a = np.array(Image.open(a.get('images')[0]))
