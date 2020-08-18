@@ -2,6 +2,7 @@ import numpy as np
 import itertools
 from itertools import zip_longest
 import glob
+from itertools import tee, islice, chain
 
 
 def angle_to(p1, p2):
@@ -42,6 +43,13 @@ def pairwise(iterable):
     a, b = itertools.tee(iterable)
     next(b, None)
     return zip(a, b)
+
+
+def previous_and_next(some_iterable):
+    prevs, items, nexts = tee(some_iterable, 3)
+    prevs = chain([None], prevs)
+    nexts = chain(islice(nexts, 1, None), [None])
+    return zip(prevs, items, nexts)
 
 
 def grouper(iterable, n, fillvalue=None):

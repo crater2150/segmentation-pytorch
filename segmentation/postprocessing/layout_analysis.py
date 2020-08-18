@@ -1,12 +1,12 @@
 import glob
 import itertools
 import math
-from typing import NamedTuple, List, Tuple
+from typing import NamedTuple, List, Tuple, Union
 from collections import namedtuple
 from matplotlib import pyplot
 from skimage.morphology import skeletonize
 from sklearn.cluster import dbscan
-
+from segmentation.util import previous_and_next
 from segmentation.network import Network
 from segmentation.postprocessing.baseline_extraction import extraxct_baselines_from_probability_map
 from segmentation.settings import PredictorSettings
@@ -18,7 +18,7 @@ Todo: Refactor file
 '''
 
 
-class ClusterResult(NamedTuple):
+class BaselineResult(NamedTuple):
     baseline: List
     height: int
     font_width: float
@@ -26,15 +26,21 @@ class ClusterResult(NamedTuple):
     cluster_location: int
 
 
-class BboxBaselines(NamedTuple):
-    baselines: List[ClusterResult]
-    bbox: List[Tuple[int]]
+class BboxCluster(NamedTuple):
+    baselines: List[BaselineResult]
+    bbox: List[Tuple[any]]
 
 
 def analyse(baselines, image, image2):
     image = 1 - image
     result = []
     heights = []
+    img = image2.convert('RGB')
+    if baselines is None:
+        array = np.array(img)
+        pyplot.imshow(array)
+        pyplot.show()
+        return
     for baseline in baselines:
         index, height = get_top(image=image, baseline=baseline)
         result.append((baseline, index, height))
@@ -83,56 +89,116 @@ def analyse(baselines, image, image2):
                                margin_bot=0,
                                margin_left=0,
                                margin_right=0)
-        #draw.polygon(pol, outline=colors[ind % len(colors)])
+        # draw.polygon(pol, outline=colors[ind % len(colors)])
         draw.text((pol[0]), "w:{},h:{},l:{} l:{}".format(round(meta[1], 3), meta[2], t.labels_[ind],
-                                                         e.labels_[ind]), fill=(14, 183, 242))  # ), font=ImageFont.truetype("font_path123"))
-        cluster_results.append(ClusterResult(baseline=meta[0],
-                                             height=meta[2],
-                                             font_width=meta[1],
-                                             cluster_type=t.labels_[ind],
-                                             cluster_location=e.labels_[ind]))
-
+                                                         e.labels_[ind]),
+                  fill=(14, 183, 242))  # ), font=ImageFont.truetype("font_path123"))
+        cluster_results.append(BaselineResult(baseline=meta[0],
+                                              height=meta[2],
+                                              font_width=meta[1],
+                                              cluster_type=t.labels_[ind],
+                                              cluster_location=e.labels_[ind]))
+    cluster_results = [x for x in cluster_results if x.height > 5]
     clusterd = generate_clustered_lines(cluster_results)
     bboxes = get_bbounding_box_of_cluster(clustered=clusterd)
     for ind, x in enumerate(bboxes):
-        draw.line(x + [x[0]], fill=colors[ind % len(colors)], width=3)
+        draw.line(x.bbox + [x.bbox[0]], fill=colors[ind % len(colors)], width=3)
 
     array = np.array(img)
     pyplot.imshow(array)
     pyplot.show()
 
 
-def get_bbounding_box_of_cluster(clustered: List[List[ClusterResult]]):
+def remove_small_baselines(bboxes: List[BboxCluster]):
+    for x in previous_and_next(bboxes):
+        pass
+
+
+def connect_bounding_box(bboxes: List[BboxCluster]):
+    bboxes_clone = bboxes.copy()
+    clusters = []
+    cluster = []
+
+    def alpha_shape_from_list_of_bboxes(clusters):
+        def merge_ponts_to_box(points):
+            points = sorted(points, key = lambda k : k[1])
+            start = points[-1]
+
+            pass
+        bboxes = []
+        for item in clusters:
+            points = list(itertools.chain([x.bbox for x in item]))
+
+            box = sorted(box, key=lambda k: k[0][1])
+
+
+    while True:
+        for ind, x in reversed(enumerate(bboxes_clone)):
+            if len(cluster) == 0:
+                cluster.append(x)
+                del bboxes_clone[ind]
+                break
+            bbox = cluster[-1].bbox
+            height = cluster[-1].baselines[0].height
+            x1, y1 = zip(*bbox)
+            type1 = cluster[-1].baselines[0].cluster_type
+            x2, y2 = zip(*x.bbox)
+            type2 = x.baselines[0].cluster_type
+
+            if type1 == type2:
+                if (min(x1) > min(x2) and max(x1) < max(x2)) or min(x2) > min(x1) and max(x2) < max(x1):
+                    if abs(max(y1) - max(y2)) < 2 * height:
+                        cluster.append(x)
+                        del bboxes_clone[ind]
+                        break
+            if abs(max(y1) - max(y2)) > 2 * height:
+                clusters.append(cluster)
+                cluster = []
+            if ind == 0:
+                clusters.append(cluster)
+                cluster = []
+                break
+        if len(bboxes_clone) == 0:
+            clusters.append(cluster)
+        pass
+
+
+def get_bbounding_box_of_cluster(clustered: List[List[BaselineResult]]):
     boxes = []
 
-    def get_border(cluster: List[ClusterResult]):
+    def get_border(cluster: List[BaselineResult]):
+
         xmin = math.inf
         xmax = 0
         ymin = math.inf
         ymax = 0
+        height = 0
         for item in cluster:
-            x, y = item.baseline[0]
-            x2, y2 = item.baseline[-1]
-            xmin = min(x, x2, xmin)
-            ymin = min(y - item.height, y2 - item.height, ymin)
-            xmax = max(x, x2, xmax)
-            ymax = max(y, y2, ymax)
-        return [(xmin, ymin), (xmax, ymin), (xmax, ymax), (xmin, ymax)]
+            before = xmin
+            x, y = list(zip(*item.baseline))
+            x = list(x)
+            y = list(y)
+            xmin = min(x + [xmin])
+            ymin = min(y + [ymin])
+            xmax = max(x + [xmax])
+            ymax = max(y + [ymax])
+            if before != xmin:
+                height = item.height
+        return BboxCluster(baselines=cluster,
+                           bbox=[(xmin, ymin - height), (xmax, ymin - height), (xmax, ymax), (xmin, ymax)])
 
     for t in clustered:
         boxes.append(get_border(t))
     return boxes
 
 
-def generate_clustered_lines(cluster_results: List[ClusterResult]):
+def generate_clustered_lines(cluster_results: List[BaselineResult]):
     clone = sorted(cluster_results, key=lambda t: t.baseline[0][1])
     clustered = []
     cluster = []
     while len(clone) > 0:
         for ind, x in enumerate(reversed(clone)):
 
-            if x.cluster_type == 2 and x.cluster_location == 7:
-                pass
             if len(cluster) == 0:
                 cluster.append(x)
                 del clone[len(clone) - 1 - ind]
@@ -194,16 +260,18 @@ if __name__ == '__main__':
     from segmentation.scripts.predict import Ensemble
     from PIL import Image, ImageDraw, ImageFont
 
-    files = list(itertools.chain.from_iterable(
+    files0 = list(itertools.chain.from_iterable(
         [glob.glob("/mnt/sshfs/scratch/Datensets_Bildverarbeitung/page_segmentation/OCR-D/images/*.png")]))
-    files = list(itertools.chain.from_iterable(
+    files1 = list(itertools.chain.from_iterable(
         [glob.glob("/mnt/sshfs/scratch/Datensets_Bildverarbeitung/page_segmentation/norbert_fischer/lgt/bin/*.png")]))
+    files2 = list(itertools.chain.from_iterable(
+        [glob.glob("/mnt/sshfs/scratch/Datensets_Bildverarbeitung/page_segmentation/narren/GW5049/images/*.png")]))
     for x in model_paths:
         p_setting = PredictorSettings(MODEL_PATH=x)
         network = Network(p_setting)
         networks.append(network)
     ensemble = Ensemble(networks)
-    for file in files:
+    for file in files0:
         p_map, scale_factor = ensemble(file, scale_area=1000000)
         baselines = extraxct_baselines_from_probability_map(p_map)
 
