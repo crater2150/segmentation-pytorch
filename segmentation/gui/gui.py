@@ -137,7 +137,7 @@ class Controller:
         self.baseline_indexes = []
 
         self.scale = None
-
+        self.image_file_name = None
     # ----------BUTTON EVENTS----------
 
     def load_img_thread(self):
@@ -169,6 +169,7 @@ class Controller:
 
         # self.reset_imageframe()
         img = Image.open(filename)  # open image
+        self.image_file_name = filename
         self.im_name, self.suffix = os.path.basename(filename).split('.')  # extract image name
 
         def get_scaled_dimensions(imagex, imagey, imagex2, imagey2):
@@ -524,13 +525,35 @@ class Controller:
                 return
             self.extract_xml_info()
 
-    def extract_xml_info(self):
+    def extract_xml_info(self, debug = True):
         import copy
         cop_baselines = copy.deepcopy(self.baselines)
         cop_baselines = [x for x in cop_baselines if len(x) > 0]
         scale_baselines(cop_baselines, 1 / self.scale)
+        if debug:
+            colors = [(255, 0, 0),
+                      (0, 255, 0),
+                      (0, 0, 255),
+                      (255, 255, 0),
+                      (0, 255, 255),
+                      (255, 0, 255)]
+            from PIL import ImageDraw
+            import itertools
+            from matplotlib import pyplot
+            img = Image.open(self.image_file_name)  # open image
+            draw = ImageDraw.Draw(img)
+            for ind, x in enumerate(cop_baselines):
+                t = list(itertools.chain.from_iterable(x))
+                a = t[::]
+                draw.line(a, fill=colors[ind % len(colors)], width=4)
+            array = np.array(img)
+            pyplot.imshow(array)
+            pyplot.show()
 
-        xmlgen = XMLGenerator(self.im_width, self.im_height, self.im_name, cop_baselines)
+        from segmentation.gui.xml_util import TextRegion, BaseLine, TextLine
+        regions = [TextRegion([TextLine(coords=None, baseline=BaseLine(x))]) for x in cop_baselines]
+
+        xmlgen = XMLGenerator(self.im_width, self.im_height, self.im_name, regions=regions)
 
         print(xmlgen.baselines_to_xml_string())
         xmlgen.save_textregions_as_xml(self.save_directory)
@@ -708,6 +731,6 @@ if __name__ == "__main__":
                             OUTPUT_PATH="/home/alexanderh/PycharmProjects/segmentation-pytorch/data/effnet2.torch",
                             MODEL_PATH='/home/alexanderh/PycharmProjects/segmentation-pytorch/data/effnet.torch.torch')
     p_setting = PredictorSettings(PREDICT_DATASET=d_predict,
-                                  MODEL_PATH='/home/alexander/PycharmProjects/segmentation_pytorch/models/effnet2.torch.torch')
+                                  MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/ICDAR2019_b.torch')#/home/alexander/PycharmProjects/segmentation_pytorch/models/effnet2.torch.torch')
     trainer = Network(p_setting, color_map=map)
     start_GUI(network=trainer)
