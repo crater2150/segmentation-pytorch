@@ -12,6 +12,7 @@ from segmentation.postprocessing.baseline_extraction import extraxct_baselines_f
 from segmentation.settings import PredictorSettings
 import numpy as np
 from sklearn.cluster import DBSCAN
+from PIL import Image, ImageDraw, ImageFont
 
 '''
 Todo: Refactor file
@@ -25,10 +26,23 @@ class BaselineResult(NamedTuple):
     cluster_type: int
     cluster_location: int
 
+    def scale(self, scale_factor):
+        baseline = [(x[0]*scale_factor, x[1]*scale_factor) for x in self.baseline]
+        return BaselineResult(baseline=baseline,
+                              height=self.height * scale_factor,
+                              font_width=self.font_width,
+                              cluster_location=self.cluster_location,
+                              cluster_type=self.cluster_type
+                              )
+
 
 class BboxCluster(NamedTuple):
     baselines: List[BaselineResult]
-    bbox: List[Tuple[any]]
+    bbox: List[Tuple[any, any]]
+
+    def scale(self, scale_factor):
+        return BboxCluster(baselines=[x.scale(scale_factor) for x in self.baselines],
+                           bbox=[(x[0]*scale_factor, x[1]*scale_factor) for x in self.bbox])
 
 
 def analyse(baselines, image, image2):
@@ -105,9 +119,9 @@ def analyse(baselines, image, image2):
         draw.line(x.bbox + [x.bbox[0]], fill=colors[ind % len(colors)], width=3)
 
     array = np.array(img)
-    pyplot.imshow(array)
-    pyplot.show()
-
+    #pyplot.imshow(array)
+    #pyplot.show()
+    return bboxes
 
 def remove_small_baselines(bboxes: List[BboxCluster]):
     for x in previous_and_next(bboxes):
