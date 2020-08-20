@@ -546,7 +546,7 @@ class Network(object):
                 output = unpad(output, shape)
                 reversed = transformer.deaugment_mask(output)
                 reversed = torch.nn.functional.interpolate(reversed, size=list(o_shape)[2:], mode="nearest")
-                print("original: {} input: {}, padded: {} unpadded {} output {}".format(str(o_shape),
+                logger.debug("original: {} input: {}, padded: {} unpadded {} output {} \n".format(str(o_shape),
                                                                                         str(shape), str(
                         list(augmented_image.shape)), str(list(output.shape)), str(list(reversed.shape))))
                 outputs.append(reversed)
@@ -558,13 +558,16 @@ class Network(object):
 
             return out
 
-    def predict_single_image_by_path(self, path, rgb=True, preprocessing=True, tta_aug=None, scale_area=1000000):
+    def predict_single_image_by_path(self, path, rgb=True, preprocessing=True, tta_aug=None, scale_area=1000000, additional_scale_factor=None):
         from PIL import Image
         from segmentation.dataset import get_rescale_factor, rescale_pil
         from segmentation.util import gray_to_rgb
         image = Image.open(path)
         rescale_factor = get_rescale_factor(image, scale_area=scale_area)
+        if additional_scale_factor is not None:
+            rescale_factor = rescale_factor * additional_scale_factor
         image = np.array(rescale_pil(image, rescale_factor, 1))
+
         return self.predict_single_image(image, rgb=rgb, preprocessing=preprocessing, tta_aug=tta_aug), rescale_factor
 
 

@@ -86,7 +86,7 @@ class XMLGenerator:
         '''
         coordstring = ""
         for coord in coords:
-            coordstring = coordstring + str(coord[0]) + "," + str(coord[1]) + " "
+            coordstring = coordstring + str(int(round(coord[0]))) + "," + str(int(round(coord[1]))) + " "
         return coordstring[:-1]
 
     def save_textregions_as_xml(self, output_path: str):

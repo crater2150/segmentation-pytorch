@@ -27,7 +27,7 @@ class BaselineResult(NamedTuple):
     cluster_location: int
 
     def scale(self, scale_factor):
-        baseline = [(x[0]*scale_factor, x[1]*scale_factor) for x in self.baseline]
+        baseline = [(x[0] * scale_factor, x[1] * scale_factor) for x in self.baseline]
         return BaselineResult(baseline=baseline,
                               height=self.height * scale_factor,
                               font_width=self.font_width,
@@ -42,7 +42,20 @@ class BboxCluster(NamedTuple):
 
     def scale(self, scale_factor):
         return BboxCluster(baselines=[x.scale(scale_factor) for x in self.baselines],
-                           bbox=[(x[0]*scale_factor, x[1]*scale_factor) for x in self.bbox])
+                           bbox=[(x[0] * scale_factor, x[1] * scale_factor) for x in self.bbox])
+
+    def get_average_height(self):
+        return np.mean([x.height for x in self.baselines])
+
+    def get_char_cluster_type(self):
+        return self.baselines[0].cluster_type
+
+    def get_location_cluster_type(self):
+        return self.baselines[0].cluster_location
+
+    def number_of_baselines_in_cluster(self):
+        return len(self.baselines)
+
 
 
 def analyse(baselines, image, image2):
@@ -115,59 +128,78 @@ def analyse(baselines, image, image2):
     cluster_results = [x for x in cluster_results if x.height > 5]
     clusterd = generate_clustered_lines(cluster_results)
     bboxes = get_bbounding_box_of_cluster(clustered=clusterd)
+    bboxes = connect_bounding_box(bboxes)
     for ind, x in enumerate(bboxes):
-        draw.line(x.bbox + [x.bbox[0]], fill=colors[ind % len(colors)], width=3)
+        if x.bbox:
+            draw.line(x.bbox + [x.bbox[0]], fill=colors[ind % len(colors)], width=3)
 
     array = np.array(img)
-    #pyplot.imshow(array)
-    #pyplot.show()
+    # pyplot.imshow(array)
+    # pyplot.show()
     return bboxes
+
 
 def remove_small_baselines(bboxes: List[BboxCluster]):
     for x in previous_and_next(bboxes):
         pass
 
 
-def connect_bounding_box(bboxes: List[BboxCluster]):
+def connect_bounding_box(bboxes: [List[BboxCluster]]):
     bboxes_clone = bboxes.copy()
     clusters = []
     cluster = []
 
     def alpha_shape_from_list_of_bboxes(clusters):
         def merge_ponts_to_box(points):
-            points = sorted(points, key = lambda k : k[1])
-            start = points[-1]
+            if len(points) == 4:
+                return points
 
-            pass
+            def split_list_equally(list):
+                list1 = []
+                list2 = []
+                for ind, x in enumerate(list):
+                    if ind % 2 == 0:
+                        list1.append(x)
+                    else:
+                        list2.append(x)
+                return list1, list2
+
+            # nb = len(points) / 4
+            points = sorted(points, key=lambda k: (k[1], k[0]))
+            l_1, l_2 = split_list_equally(points)
+            array = l_1 + list(reversed(l_2))
+            return array
+
         bboxes = []
         for item in clusters:
-            points = list(itertools.chain([x.bbox for x in item]))
+            points = list(itertools.chain.from_iterable([x.bbox for x in item]))
+            array = merge_ponts_to_box(points=points)
 
-            box = sorted(box, key=lambda k: k[0][1])
+            baselines = []
+            for x in item:
+                baselines = baselines + x.baselines
+            bboxes.append(BboxCluster(baselines=baselines, bbox=array))
+        return bboxes
 
-
-    while True:
-        for ind, x in reversed(enumerate(bboxes_clone)):
+    while len(bboxes_clone) != 0:
+        for ind, x in reversed(list(enumerate(bboxes_clone))):
             if len(cluster) == 0:
                 cluster.append(x)
                 del bboxes_clone[ind]
                 break
             bbox = cluster[-1].bbox
-            height = cluster[-1].baselines[0].height
+            height = min(cluster[-1].baselines[0].height, x.baselines[0].height)
             x1, y1 = zip(*bbox)
             type1 = cluster[-1].baselines[0].cluster_type
             x2, y2 = zip(*x.bbox)
             type2 = x.baselines[0].cluster_type
 
             if type1 == type2:
-                if (min(x1) > min(x2) and max(x1) < max(x2)) or min(x2) > min(x1) and max(x2) < max(x1):
-                    if abs(max(y1) - max(y2)) < 2 * height:
+                if abs(min(x1)-min(x2)) < 20 or abs(max(x1)-max(x2)) < 20:
+                    if abs(max(y1) - min(y2)) < height or abs(min(y1) - max(y2)) < height:
                         cluster.append(x)
                         del bboxes_clone[ind]
                         break
-            if abs(max(y1) - max(y2)) > 2 * height:
-                clusters.append(cluster)
-                cluster = []
             if ind == 0:
                 clusters.append(cluster)
                 cluster = []
@@ -175,6 +207,8 @@ def connect_bounding_box(bboxes: List[BboxCluster]):
         if len(bboxes_clone) == 0:
             clusters.append(cluster)
         pass
+
+    return alpha_shape_from_list_of_bboxes(clusters)
 
 
 def get_bbounding_box_of_cluster(clustered: List[List[BaselineResult]]):
