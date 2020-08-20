@@ -563,6 +563,7 @@ class Network(object):
         from segmentation.dataset import get_rescale_factor, rescale_pil
         from segmentation.util import gray_to_rgb
         image = Image.open(path)
+
         rescale_factor = get_rescale_factor(image, scale_area=scale_area)
         if additional_scale_factor is not None:
             rescale_factor = rescale_factor * additional_scale_factor

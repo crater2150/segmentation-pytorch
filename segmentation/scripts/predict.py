@@ -100,7 +100,6 @@ def main():
 
                 grayscale = to_grayscale(np.array(image))
                 binary = gauss_threshold(image=grayscale) / 255
-
                 bboxs = analyse(baselines=baselines, image=binary, image2=image)
                 if args.max_line_height is not None or args.min_line_height is not None:
                     heights = []

@@ -150,9 +150,9 @@ def connect_bounding_box(bboxes: [List[BboxCluster]]):
     cluster = []
 
     def alpha_shape_from_list_of_bboxes(clusters):
-        def merge_ponts_to_box(points):
-            if len(points) == 4:
-                return points
+        def merge_ponts_to_box(point_list):
+            if len(point_list) == 1:
+                return point_list[0]
 
             def split_list_equally(list):
                 list1 = []
@@ -164,16 +164,25 @@ def connect_bounding_box(bboxes: [List[BboxCluster]]):
                         list2.append(x)
                 return list1, list2
 
+            list1 = []
+            list2 = []
+            for x in point_list:
+                x = sorted(x, key=lambda k: (k[0], k[1]))
+                list1.append(x[:2])
+                list2.append(list(reversed(x[2:])))
+            array = list(itertools.chain.from_iterable(list1 + list(reversed(list2))))
             # nb = len(points) / 4
-            points = sorted(points, key=lambda k: (k[1], k[0]))
-            l_1, l_2 = split_list_equally(points)
-            array = l_1 + list(reversed(l_2))
+            #points = sorted(points, key=lambda k: (k[1], k[0]))
+            # l_1, l_2 = split_list_equally(points)
+            #array = l_1 + list(reversed(l_2))
             return array
 
         bboxes = []
         for item in clusters:
-            points = list(itertools.chain.from_iterable([x.bbox for x in item]))
-            array = merge_ponts_to_box(points=points)
+            item = sorted(item, key=lambda k: k.bbox[0][1])
+            y = [x.bbox for x in item]
+            #points = list(itertools.chain.from_iterable([x.bbox for x in item]))
+            array = merge_ponts_to_box(point_list=y)
 
             baselines = []
             for x in item:
@@ -195,7 +204,7 @@ def connect_bounding_box(bboxes: [List[BboxCluster]]):
             type2 = x.baselines[0].cluster_type
 
             if type1 == type2:
-                if abs(min(x1)-min(x2)) < 20 or abs(max(x1)-max(x2)) < 20:
+                if abs(min(x1)-min(x2)) < 50 or abs(max(x1)-max(x2)) < 50:
                     if abs(max(y1) - min(y2)) < height or abs(min(y1) - max(y2)) < height:
                         cluster.append(x)
                         del bboxes_clone[ind]
