@@ -84,6 +84,24 @@ def is_above(b1: BboxCluster, b2: BboxCluster, gap_padding_factor=0.5):
 
     return False
 
+def is_below(b1: BboxCluster, b2: BboxCluster, gap_padding_factor=0.5):
+    b1p1, b1p2 = b1.get_bottom_line_of_bbox()
+    b2p1, p2p2 = b2.get_top_line_of_bbox()
+    b1x1, b1y1 = b1p1
+    b1x2, b1y2 = b1p2
+    b2x1, b2y1 = b2p1
+    b2x2, b2y2 = p2p2
+    height = b2.get_average_height()
+    if b2x1 <= b1x1 <= b2x2 or b2x1 <= b1x2 <= b2x2 or (b2x1 >= b1x1 and b2x2 <= b1x2) or (
+            b2x1 <= b1x1 and b2x2 >= b1x2):
+        #print(b2y1)
+        #print(b1y1)
+        #print(b2y1 < b1y1)
+        if b2y1 + gap_padding_factor * height > b1y1: # (0,0) is top left
+            return True
+
+    return False
+
 
 def get_bboxs_above(bbox: BboxCluster, bbox_cluster: List[BboxCluster], height_threshold=100):
     result = []
@@ -99,7 +117,50 @@ def get_bboxs_above(bbox: BboxCluster, bbox_cluster: List[BboxCluster], height_t
                 difference = b1y1 - b2y2
                 if difference <= height:
                     result.append(x)
-    return result
+
+    # only return b_boxes which are directly above a specific bbox
+    # thus filtering b_boxes which doesnt fulfill this requirement
+    # is needed when pages are not deskewed
+    result_direct = []
+    for x in result:
+        direct_above = True
+        for z in result:
+            if is_above(x, z):
+                direct_above = False
+                break
+        if direct_above:
+            result_direct.append(x)
+    return result_direct
+
+
+def get_bboxs_below(bbox: BboxCluster, bbox_cluster: List[BboxCluster], height_threshold=100):
+    result = []
+    for x in bbox_cluster:
+        if set(sorted(list(itertools.chain.from_iterable(x.bbox)))) != set(
+                sorted(list(itertools.chain.from_iterable(bbox.bbox)))):
+            if is_below(bbox, x):
+                b1p1, b1p2 = bbox.get_bottom_line_of_bbox()
+                b2p1, p2p2 = x.get_top_line_of_bbox()
+                b1x1, b1y1 = b1p1
+                b2x2, b2y2 = p2p2
+                height = bbox.get_average_height()
+                difference = b2y2 - b1y1
+                if difference <= height:
+                    result.append(x)
+
+    # only return b_boxes which are directly above a specific bbox
+    # thus filtering b_boxes which doesnt fulfill this requirement
+    # is needed when pages are not deskewed
+    result_direct = []
+    for x in result:
+        direct_below = True
+        for z in result:
+            if is_below(x, z):
+                direct_below = False
+                break
+        if direct_below:
+            result_direct.append(x)
+    return result_direct
 
 
 def analyse(baselines, image, image2):
@@ -235,7 +296,8 @@ def connect_bounding_box(bboxes: [List[BboxCluster]]):
             height = min(cluster[-1].baselines[0].height, x.baselines[0].height)
             type1 = cluster[-1].baselines[0].cluster_type
             type2 = x.baselines[0].cluster_type
-            if len(get_bboxs_above(x, bboxes)) > 1:
+            if len(get_bboxs_above(x, bboxes)) > 1 or (len(clusters) != 0 and len(clusters[-1]) != 0 and
+                                                       len(get_bboxs_below(clusters[-1][-1], bboxes)) > 1):
                 print("43444")
 
                 print(x.bbox)
@@ -248,22 +310,33 @@ def connect_bounding_box(bboxes: [List[BboxCluster]]):
                 break
 
             if type1 == type2:
-                if (b2x1 <= b1x1 <= b2x2 or b2x1 <= b1x2 <= b2x2 or (b2x1 >= b1x1 and b2x2 <= b1x2) or (
-                        b2x1 <= b1x1 and b2x2 >= b1x2)) and (abs(b1x1 - b2x1) < 150 or abs(b1x2 - b2x2) < 150):
-                    if b1y1 - b2y1 < height:
-                        if ind - 1 >= 0:
-                            if is_above(cluster[-1], bboxes_clone[ind - 1]):
-                                b3p1, b3p2 = bboxes_clone[ind - 1].get_bottom_line_of_bbox()
-                                b4p1, b4p2 = bboxes_clone[ind].get_bottom_line_of_bbox()
+                if is_above(x, cluster[-1]) and (abs(b1x1 - b2x1) < 150 or abs(b1x2 - b2x2) < 150):
+                    if abs(b2y1 - b1y1) < height:
+                        box = None
+                        pointer = 1
+                        while True:
+                            if ind - pointer >= 0:
+                                if is_above(bboxes_clone[ind - pointer], cluster[-1]):
 
-                                b4x1, b4y1 = b4p2
-                                b3x2, b3y2 = b3p2
-                                type3 = bboxes_clone[ind - 1].baselines[0].cluster_type
+                                    box = bboxes_clone[ind - pointer]
+                                    break
+                            else:
+                                break
+                            if pointer > 5:
+                                break
+                            pointer = pointer + 1
+                        if box is not None:
+                            b3p1, b3p2 = box.get_bottom_line_of_bbox()
+                            b4p1, b4p2 = bboxes_clone[ind].get_bottom_line_of_bbox()
 
-                                if type3 == type2 and b3y2 - b4y1 < height / 2:
-                                    print("31223123123")
-                                    clusters.append(cluster)
-                                    cluster = []
+                            b4x1, b4y1 = b4p2
+                            b3x2, b3y2 = b3p2
+                            type3 = box.baselines[0].cluster_type
+                            print(abs(b3y2 - b4y1))
+                            if type3 == type2 and abs(b3y2 - b4y1) < height / 2:
+                                print("31223123123")
+                                clusters.append(cluster)
+                                cluster = []
 
                         cluster.append(x)
                         del bboxes_clone[ind]
