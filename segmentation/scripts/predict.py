@@ -34,7 +34,7 @@ class Ensemble:
     def __init__(self, models):
         self.models = models
 
-    def __call__(self, x, scale_area, additional_scale_factor = None):
+    def __call__(self, x, scale_area, additional_scale_factor=None):
         res = []
         scale_factor = None
         for m in self.models:

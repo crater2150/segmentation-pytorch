@@ -94,8 +94,6 @@ def get_bboxs_above(bbox: BboxCluster, bbox_cluster: List[BboxCluster], height_t
                 difference =  b1y1 - b2y2
                 if difference <= height:
                     result.append(x)
-        else:
-            print(set(sorted(list(itertools.chain.from_iterable(x.bbox)))))
     return result
 
 
@@ -193,16 +191,6 @@ def connect_bounding_box(bboxes: [List[BboxCluster]]):
             if len(point_list) == 1:
                 return point_list[0]
 
-            def split_list_equally(list):
-                list1 = []
-                list2 = []
-                for ind, x in enumerate(list):
-                    if ind % 2 == 0:
-                        list1.append(x)
-                    else:
-                        list2.append(x)
-                return list1, list2
-
             list1 = []
             list2 = []
             for x in point_list:
@@ -239,30 +227,13 @@ def connect_bounding_box(bboxes: [List[BboxCluster]]):
             x2, y2 = zip(*x.bbox)
             type2 = x.baselines[0].cluster_type
             if len(get_bboxs_above(x, bboxes)) > 1:
-                print(len(get_bboxs_above(x, bboxes)))
                 clusters.append(cluster)
                 cluster = []
                 break
-            '''
-            if abs(np.mean(y1) - np.mean(y2)) < height / 3 and (min(x2) < min(x1) < max(x2) or
-                                                                min(x2) < max(x1) < max(x2) or
-                                                                (min(x2) > min(x1) and max(x2) < max(x1)) or
-                                                                (min(x2) < min(x1) and max(x2) > max(x1))):
-                clusters.append(cluster)
-                cluster = [x]
-                skip = True
-                del bboxes_clone[ind]
-                break
-            if skip:
-                skip = False
-                clusters.append(cluster)
-                cluster = [x]
-                del bboxes_clone[ind]
-                break
-            '''
-            if type1 == type2:
 
-                if abs(min(x1) - min(x2)) < 50 or abs(max(x1) - max(x2)) < 50 \
+            if type1 == type2:
+                # bottom linne
+                if (abs(min(x1) - min(x2)) < 150 or abs(max(x1) - max(x2)) < 150) \
                         and (min(x2) < min(x1) < max(x2) or
                              min(x2) < max(x1) < max(x2) or
                              (min(x2) > min(x1) and max(x2) < max(x1)) or
@@ -295,24 +266,24 @@ def get_bbounding_box_of_cluster(clustered: List[List[BaselineResult]]):
 
     def get_border(cluster: List[BaselineResult]):
 
-        xmin = math.inf
-        xmax = 0
-        ymin = math.inf
-        ymax = 0
+        x_min = math.inf
+        x_max = 0
+        y_min = math.inf
+        y_max = 0
         height = 0
         for item in cluster:
-            before = xmin
+            before = x_min
             x, y = list(zip(*item.baseline))
             x = list(x)
             y = list(y)
-            xmin = min(x + [xmin])
-            ymin = min(y + [ymin])
-            xmax = max(x + [xmax])
-            ymax = max(y + [ymax])
-            if before != xmin:
+            x_min = min(x + [x_min])
+            y_min = min(y + [y_min])
+            x_max = max(x + [x_max])
+            y_max = max(y + [y_max])
+            if before != x_min:
                 height = item.height
         return BboxCluster(baselines=cluster,
-                           bbox=[(xmin, ymin - height), (xmax, ymin - height), (xmax, ymax), (xmin, ymax)])
+                           bbox=[(x_min, y_min - height), (x_max, y_min - height), (x_max, y_max), (x_min, y_max)])
 
     for t in clustered:
         boxes.append(get_border(t))
