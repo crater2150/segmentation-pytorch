@@ -56,12 +56,54 @@ class BboxCluster(NamedTuple):
     def number_of_baselines_in_cluster(self):
         return len(self.baselines)
 
+    def get_bottom_line_of_bbox(self):
+        bbox_sorted = sorted(self.bbox, key=lambda k: (k[1], k[0]))
+        return bbox_sorted[-2], bbox_sorted[-1]
+
+    def get_top_line_of_bbox(self):
+        bbox_sorted = sorted(self.bbox, key=lambda k: (k[1], k[0]))
+
+        return bbox_sorted[0], bbox_sorted[1]
+
+
+def is_above(b1: BboxCluster, b2: BboxCluster):
+    b1p1, b1p2 = b1.get_top_line_of_bbox()
+    b2p1, p2p2 = b2.get_bottom_line_of_bbox()
+    b1x1, b1y1 = b1p1
+    b1x2, b1y2 = b1p2
+    b2x1, b2y1 = b2p1
+    b2x2, b2y2 = p2p2
+    if b2x1 <= b1x1 <= b2x2 or b2x1 <= b1x2 <= b2x2 or (b2x1 >= b1x1 and b2x2 <= b1x2) or (
+            b2x1 <= b1x1 and b2x2 >= b1x2):
+        if b2y1 < b1y1: # (0,0) is top left
+            return True
+    return False
+
+
+def get_bboxs_above(bbox: BboxCluster, bbox_cluster: List[BboxCluster], height_threshold=100):
+    result = []
+    for x in bbox_cluster:
+        if set(sorted(list(itertools.chain.from_iterable(x.bbox)))) != set(
+                sorted(list(itertools.chain.from_iterable(bbox.bbox)))):
+            if is_above(bbox, x):
+                b1p1, b1p2 = bbox.get_top_line_of_bbox()
+                b2p1, p2p2 = x.get_bottom_line_of_bbox()
+                b1x1, b1y1 = b1p1
+                b2x2, b2y2 = p2p2
+                height = bbox.get_average_height()
+                difference =  b1y1 - b2y2
+                if difference <= height:
+                    result.append(x)
+        else:
+            print(set(sorted(list(itertools.chain.from_iterable(x.bbox)))))
+    return result
 
 
 def analyse(baselines, image, image2):
     image = 1 - image
     result = []
     heights = []
+    length = []
     img = image2.convert('RGB')
     if baselines is None:
         array = np.array(img)
@@ -72,6 +114,7 @@ def analyse(baselines, image, image2):
         index, height = get_top(image=image, baseline=baseline)
         result.append((baseline, index, height))
         heights.append(height)
+        length.append(baseline[-1][1])
     img = image2.convert('RGB')
     draw = ImageDraw.Draw(img)
     colors = [(255, 0, 0),
@@ -96,16 +139,17 @@ def analyse(baselines, image, image2):
         baseline = x[0]
         p1 = baseline[0]
         p2 = baseline[-1]
-        vector = [x[2] / max(heights), score1]
-        vector2 = [p1[0] / width, p2[0] / width]
+        vector = [x[2] / np.max(heights), score1]
+        vector2 = [p1[0] / max(length), p2[0] / max(length)]
         result_dict[ind] = [baseline, score1, x[2], vector, vector2]
         draw.line(list(itertools.chain.from_iterable(baseline)), fill=colors[ind % len(colors)], width=2)
 
     inds = result_dict.keys()
     vectors = [result_dict[indice][3] for indice in inds]
+    h, s = zip(*vectors)
+    vectors = [[h_s, 0] for h_s, s_s in list(zip(h, s))]
     vectors2 = [result_dict[indice][4] for indice in inds]
-
-    t = DBSCAN(eps=0.08, min_samples=1).fit(np.array(vectors))
+    t = DBSCAN(eps=0.1, min_samples=1).fit(np.array(vectors))
     e = DBSCAN(eps=0.01, min_samples=1).fit(np.array(vectors2))
 
     cluster_results = []
@@ -139,11 +183,6 @@ def analyse(baselines, image, image2):
     return bboxes
 
 
-def remove_small_baselines(bboxes: List[BboxCluster]):
-    for x in previous_and_next(bboxes):
-        pass
-
-
 def connect_bounding_box(bboxes: [List[BboxCluster]]):
     bboxes_clone = bboxes.copy()
     clusters = []
@@ -171,17 +210,13 @@ def connect_bounding_box(bboxes: [List[BboxCluster]]):
                 list1.append(x[:2])
                 list2.append(list(reversed(x[2:])))
             array = list(itertools.chain.from_iterable(list1 + list(reversed(list2))))
-            # nb = len(points) / 4
-            #points = sorted(points, key=lambda k: (k[1], k[0]))
-            # l_1, l_2 = split_list_equally(points)
-            #array = l_1 + list(reversed(l_2))
             return array
 
         bboxes = []
         for item in clusters:
             item = sorted(item, key=lambda k: k.bbox[0][1])
             y = [x.bbox for x in item]
-            #points = list(itertools.chain.from_iterable([x.bbox for x in item]))
+            # points = list(itertools.chain.from_iterable([x.bbox for x in item]))
             array = merge_ponts_to_box(point_list=y)
 
             baselines = []
@@ -190,6 +225,7 @@ def connect_bounding_box(bboxes: [List[BboxCluster]]):
             bboxes.append(BboxCluster(baselines=baselines, bbox=array))
         return bboxes
 
+    skip = False
     while len(bboxes_clone) != 0:
         for ind, x in reversed(list(enumerate(bboxes_clone))):
             if len(cluster) == 0:
@@ -202,10 +238,44 @@ def connect_bounding_box(bboxes: [List[BboxCluster]]):
             type1 = cluster[-1].baselines[0].cluster_type
             x2, y2 = zip(*x.bbox)
             type2 = x.baselines[0].cluster_type
-
+            if len(get_bboxs_above(x, bboxes)) > 1:
+                print(len(get_bboxs_above(x, bboxes)))
+                clusters.append(cluster)
+                cluster = []
+                break
+            '''
+            if abs(np.mean(y1) - np.mean(y2)) < height / 3 and (min(x2) < min(x1) < max(x2) or
+                                                                min(x2) < max(x1) < max(x2) or
+                                                                (min(x2) > min(x1) and max(x2) < max(x1)) or
+                                                                (min(x2) < min(x1) and max(x2) > max(x1))):
+                clusters.append(cluster)
+                cluster = [x]
+                skip = True
+                del bboxes_clone[ind]
+                break
+            if skip:
+                skip = False
+                clusters.append(cluster)
+                cluster = [x]
+                del bboxes_clone[ind]
+                break
+            '''
             if type1 == type2:
-                if abs(min(x1)-min(x2)) < 50 or abs(max(x1)-max(x2)) < 50:
+
+                if abs(min(x1) - min(x2)) < 50 or abs(max(x1) - max(x2)) < 50 \
+                        and (min(x2) < min(x1) < max(x2) or
+                             min(x2) < max(x1) < max(x2) or
+                             (min(x2) > min(x1) and max(x2) < max(x1)) or
+                             (min(x2) < min(x1) and max(x2) > max(x1))):
                     if abs(max(y1) - min(y2)) < height or abs(min(y1) - max(y2)) < height:
+
+                        if ind - 1 >= 0:
+                            bbox_3 = bboxes_clone[ind - 1]
+                            x3, y3 = zip(*bbox_3.bbox)
+                            type3 = bbox_3.baselines[0].cluster_type
+                            if type3 == type2 and abs(np.mean(y3) - np.mean(y2)) < height / 3:
+                                clusters.append(cluster)
+                                cluster = []
                         cluster.append(x)
                         del bboxes_clone[ind]
                         break
