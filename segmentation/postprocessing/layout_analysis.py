@@ -220,11 +220,15 @@ def connect_bounding_box(bboxes: [List[BboxCluster]]):
                 cluster.append(x)
                 del bboxes_clone[ind]
                 break
-            bbox = cluster[-1].bbox
+            b1p1, b1p2 = cluster[-1].get_bottom_line_of_bbox()
+            b2p1, p2p2 = x.get_top_line_of_bbox()
+            b1x1, b1y1 = b1p1
+            b1x2, b1y2 = b1p2
+            b2x1, b2y1 = b2p1
+            b2x2, b2y2 = p2p2
+
             height = min(cluster[-1].baselines[0].height, x.baselines[0].height)
-            x1, y1 = zip(*bbox)
             type1 = cluster[-1].baselines[0].cluster_type
-            x2, y2 = zip(*x.bbox)
             type2 = x.baselines[0].cluster_type
             if len(get_bboxs_above(x, bboxes)) > 1:
                 clusters.append(cluster)
@@ -232,21 +236,20 @@ def connect_bounding_box(bboxes: [List[BboxCluster]]):
                 break
 
             if type1 == type2:
-                # bottom linne
-                if (abs(min(x1) - min(x2)) < 150 or abs(max(x1) - max(x2)) < 150) \
-                        and (min(x2) < min(x1) < max(x2) or
-                             min(x2) < max(x1) < max(x2) or
-                             (min(x2) > min(x1) and max(x2) < max(x1)) or
-                             (min(x2) < min(x1) and max(x2) > max(x1))):
-                    if abs(max(y1) - min(y2)) < height or abs(min(y1) - max(y2)) < height:
-
+                if (b2x1 <= b1x1 <= b2x2 or b2x1 <= b1x2 <= b2x2 or (b2x1 >= b1x1 and b2x2 <= b1x2) or (
+                        b2x1 <= b1x1 and b2x2 >= b1x2)) and (abs(b1x1 - b2x1) < 150 or abs(b1x2 - b2x2) < 150):
+                    if abs(b1y1 -  b2y1) < height:
                         if ind - 1 >= 0:
-                            bbox_3 = bboxes_clone[ind - 1]
-                            x3, y3 = zip(*bbox_3.bbox)
-                            type3 = bbox_3.baselines[0].cluster_type
-                            if type3 == type2 and abs(np.mean(y3) - np.mean(y2)) < height / 3:
+                            b3p1, b3p2 = bboxes_clone[ind - 1].get_bottom_line_of_bbox()
+                            b4p1, b4p2 = bboxes_clone[ind].get_bottom_line_of_bbox()
+
+                            b4x1, b4y1 = b4p2
+                            b3x2, b3y2 = b3p2
+                            type3 = bboxes_clone[ind - 1].baselines[0].cluster_type
+                            if type3 == type2 and abs(b3y2 - b4y1) < height / 3:
                                 clusters.append(cluster)
                                 cluster = []
+
                         cluster.append(x)
                         del bboxes_clone[ind]
                         break
