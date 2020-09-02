@@ -66,17 +66,22 @@ class BboxCluster(NamedTuple):
         return bbox_sorted[0], bbox_sorted[1]
 
 
-def is_above(b1: BboxCluster, b2: BboxCluster):
+def is_above(b1: BboxCluster, b2: BboxCluster, gap_padding_factor=0.5):
     b1p1, b1p2 = b1.get_top_line_of_bbox()
     b2p1, p2p2 = b2.get_bottom_line_of_bbox()
     b1x1, b1y1 = b1p1
     b1x2, b1y2 = b1p2
     b2x1, b2y1 = b2p1
     b2x2, b2y2 = p2p2
+    height = b2.get_average_height()
     if b2x1 <= b1x1 <= b2x2 or b2x1 <= b1x2 <= b2x2 or (b2x1 >= b1x1 and b2x2 <= b1x2) or (
             b2x1 <= b1x1 and b2x2 >= b1x2):
-        if b2y1 < b1y1: # (0,0) is top left
+        #print(b2y1)
+        #print(b1y1)
+        #print(b2y1 < b1y1)
+        if b2y1 < b1y1 + gap_padding_factor * height: # (0,0) is top left
             return True
+
     return False
 
 
@@ -91,7 +96,7 @@ def get_bboxs_above(bbox: BboxCluster, bbox_cluster: List[BboxCluster], height_t
                 b1x1, b1y1 = b1p1
                 b2x2, b2y2 = p2p2
                 height = bbox.get_average_height()
-                difference =  b1y1 - b2y2
+                difference = b1y1 - b2y2
                 if difference <= height:
                     result.append(x)
     return result
@@ -231,6 +236,13 @@ def connect_bounding_box(bboxes: [List[BboxCluster]]):
             type1 = cluster[-1].baselines[0].cluster_type
             type2 = x.baselines[0].cluster_type
             if len(get_bboxs_above(x, bboxes)) > 1:
+                print("43444")
+
+                print(x.bbox)
+                for t in get_bboxs_above(x, bboxes):
+                    print(t.bbox)
+                print("43444")
+
                 clusters.append(cluster)
                 cluster = []
                 break
@@ -238,22 +250,27 @@ def connect_bounding_box(bboxes: [List[BboxCluster]]):
             if type1 == type2:
                 if (b2x1 <= b1x1 <= b2x2 or b2x1 <= b1x2 <= b2x2 or (b2x1 >= b1x1 and b2x2 <= b1x2) or (
                         b2x1 <= b1x1 and b2x2 >= b1x2)) and (abs(b1x1 - b2x1) < 150 or abs(b1x2 - b2x2) < 150):
-                    if abs(b1y1 - b2y1) < height:
+                    if b1y1 - b2y1 < height:
                         if ind - 1 >= 0:
-                            b3p1, b3p2 = bboxes_clone[ind - 1].get_bottom_line_of_bbox()
-                            b4p1, b4p2 = bboxes_clone[ind].get_bottom_line_of_bbox()
+                            if is_above(cluster[-1], bboxes_clone[ind - 1]):
+                                b3p1, b3p2 = bboxes_clone[ind - 1].get_bottom_line_of_bbox()
+                                b4p1, b4p2 = bboxes_clone[ind].get_bottom_line_of_bbox()
 
-                            b4x1, b4y1 = b4p2
-                            b3x2, b3y2 = b3p2
-                            type3 = bboxes_clone[ind - 1].baselines[0].cluster_type
-                            if type3 == type2 and abs(b3y2 - b4y1) < height / 2:
-                                clusters.append(cluster)
-                                cluster = []
+                                b4x1, b4y1 = b4p2
+                                b3x2, b3y2 = b3p2
+                                type3 = bboxes_clone[ind - 1].baselines[0].cluster_type
+
+                                if type3 == type2 and b3y2 - b4y1 < height / 2:
+                                    print("31223123123")
+                                    clusters.append(cluster)
+                                    cluster = []
 
                         cluster.append(x)
                         del bboxes_clone[ind]
                         break
             if ind == 0:
+                print("444")
+
                 clusters.append(cluster)
                 cluster = []
                 break
