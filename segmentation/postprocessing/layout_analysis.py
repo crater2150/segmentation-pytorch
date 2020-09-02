@@ -169,7 +169,7 @@ def analyse(baselines, image, image2):
                                               cluster_location=e.labels_[ind]))
     cluster_results = [x for x in cluster_results if x.height > 5]
     clusterd = generate_clustered_lines(cluster_results)
-    bboxes = get_bbounding_box_of_cluster(clustered=clusterd)
+    bboxes = generate_bounding_box_cluster(clustered=clusterd)
     bboxes = connect_bounding_box(bboxes)
     for ind, x in enumerate(bboxes):
         if x.bbox:
@@ -238,7 +238,7 @@ def connect_bounding_box(bboxes: [List[BboxCluster]]):
             if type1 == type2:
                 if (b2x1 <= b1x1 <= b2x2 or b2x1 <= b1x2 <= b2x2 or (b2x1 >= b1x1 and b2x2 <= b1x2) or (
                         b2x1 <= b1x1 and b2x2 >= b1x2)) and (abs(b1x1 - b2x1) < 150 or abs(b1x2 - b2x2) < 150):
-                    if abs(b1y1 -  b2y1) < height:
+                    if abs(b1y1 - b2y1) < height:
                         if ind - 1 >= 0:
                             b3p1, b3p2 = bboxes_clone[ind - 1].get_bottom_line_of_bbox()
                             b4p1, b4p2 = bboxes_clone[ind].get_bottom_line_of_bbox()
@@ -246,7 +246,7 @@ def connect_bounding_box(bboxes: [List[BboxCluster]]):
                             b4x1, b4y1 = b4p2
                             b3x2, b3y2 = b3p2
                             type3 = bboxes_clone[ind - 1].baselines[0].cluster_type
-                            if type3 == type2 and abs(b3y2 - b4y1) < height / 3:
+                            if type3 == type2 and abs(b3y2 - b4y1) < height / 2:
                                 clusters.append(cluster)
                                 cluster = []
 
@@ -264,7 +264,7 @@ def connect_bounding_box(bboxes: [List[BboxCluster]]):
     return alpha_shape_from_list_of_bboxes(clusters)
 
 
-def get_bbounding_box_of_cluster(clustered: List[List[BaselineResult]]):
+def generate_bounding_box_cluster(clustered: List[List[BaselineResult]]):
     boxes = []
 
     def get_border(cluster: List[BaselineResult]):
