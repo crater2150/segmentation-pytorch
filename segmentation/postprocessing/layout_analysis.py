@@ -296,15 +296,8 @@ def connect_bounding_box(bboxes: [List[BboxCluster]]):
             height = min(cluster[-1].baselines[0].height, x.baselines[0].height)
             type1 = cluster[-1].baselines[0].cluster_type
             type2 = x.baselines[0].cluster_type
-            if len(get_bboxs_above(x, bboxes)) > 1 or (len(clusters) != 0 and len(clusters[-1]) != 0 and
-                                                       len(get_bboxs_below(clusters[-1][-1], bboxes)) > 1):
-                print("43444")
-
-                print(x.bbox)
-                for t in get_bboxs_above(x, bboxes):
-                    print(t.bbox)
-                print("43444")
-
+            if len(get_bboxs_above(x, bboxes)) > 1 or len(get_bboxs_below(cluster[-1], bboxes)) > 1:
+                    #or (len(clusters) != 0 and len(clusters[-1]) != 0 and len(get_bboxs_below(clusters[-1][-1], bboxes)) > 1):
                 clusters.append(cluster)
                 cluster = []
                 break
@@ -332,9 +325,7 @@ def connect_bounding_box(bboxes: [List[BboxCluster]]):
                             b4x1, b4y1 = b4p2
                             b3x2, b3y2 = b3p2
                             type3 = box.baselines[0].cluster_type
-                            print(abs(b3y2 - b4y1))
-                            if type3 == type2 and abs(b3y2 - b4y1) < height / 2:
-                                print("31223123123")
+                            if type3 == type2 and abs(b4y1 - b3y2) < height:
                                 clusters.append(cluster)
                                 cluster = []
 
@@ -342,8 +333,6 @@ def connect_bounding_box(bboxes: [List[BboxCluster]]):
                         del bboxes_clone[ind]
                         break
             if ind == 0:
-                print("444")
-
                 clusters.append(cluster)
                 cluster = []
                 break
