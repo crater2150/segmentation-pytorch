@@ -284,7 +284,7 @@ class Network(object):
             self.settings.TRAIN_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(self.settings.ENCODER)
             self.settings.VAL_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(self.settings.ENCODER)
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(device)
+        logger.info('Device: {} is used for training/prediction\n'.format(device))
         self.device = torch.device(device)
         self.model_params = architecture.get_architecture_params()
         self.model_params['classes'] = classes

@@ -7,4 +7,4 @@ def to_grayscale(image):
         gray = 0.2989 * r + 0.5870 * g + 0.1140 * b
         return gray.astype(np.uint8)
     else:
-        return image
+        return image.astype(np.uint8) * 255

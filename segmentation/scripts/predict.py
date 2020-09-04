@@ -5,6 +5,7 @@ import glob
 import os
 
 from matplotlib import pyplot
+from skimage.filters import try_all_threshold, threshold_local
 
 from segmentation.postprocessing.baseline_extraction import extraxct_baselines_from_probability_map
 from segmentation.postprocessing.layout_analysis import analyse
@@ -98,9 +99,23 @@ def main():
                 from segmentation.preprocessing.basic_binarizer import gauss_threshold
                 from segmentation.preprocessing.util import to_grayscale
 
-                grayscale = to_grayscale(np.array(image))
-                binary = gauss_threshold(image=grayscale) / 255
-                bboxs = analyse(baselines=baselines, image=binary, image2=image)
+                #grayscale = to_grayscale(np.array(image))
+                from segmentation.preprocessing.ocrupus import binarize
+                binary = (binarize(np.array(image).astype("float64"))).astype("uint8")
+                #binary = gauss_threshold(image=grayscale) / 255
+                from matplotlib import pyplot as plt
+                #fig, ax = try_all_threshold(grayscale, figsize=(10, 8), verbose=False)
+                #plt.show()
+                #binary = (grayscale > threshold_local(grayscale, 3, "gaussian", offset=0.5))
+                #binary = binary.astype('uint8')
+                #plt.imshow(binary3)
+                #plt.show()
+                #f, ax = plt.subplots(1, 2 , True, True)
+                #ax[0].imshow(binary)
+                #ax[1].imshow(binary2)
+                #plt.show()
+
+                bboxs = analyse(baselines=baselines, image=(1 - binary), image2=image)
                 if args.max_line_height is not None or args.min_line_height is not None:
                     heights = []
                     for bx in bboxs:
@@ -131,6 +146,16 @@ def main():
                         basename = "debug_" + os.path.basename(file)
                         file_path = os.path.join(args.output_path_debug_images, basename)
                         img.save(file_path)
+                        filename =os.path.basename(file).split(".")
+                        print(filename)
+                        basename = "debug_" + filename[0] + "_b1_." + filename[-1]
+                        file_path = os.path.join(args.output_path_debug_images, basename)
+                        img2 = Image.fromarray(binary*255).convert('RGB')
+                        img2.save(file_path)
+                        #basename = "debug_" + filename[0] + "_b2_." + filename[-1]
+                        #file_path = os.path.join(args.output_path_debug_images, basename)
+                        #img2 = Image.fromarray((1-binary2)*255).convert('RGB')
+                        #img2.save(file_path)
                 if (args.show_baselines or args.show_layout) and args.debug:
                     array = np.array(img)
                     pyplot.imshow(array)

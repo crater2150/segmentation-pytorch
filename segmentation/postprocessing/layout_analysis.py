@@ -76,13 +76,14 @@ def is_above(b1: BboxCluster, b2: BboxCluster, gap_padding_factor=0.5):
     height = b2.get_average_height()
     if b2x1 <= b1x1 <= b2x2 or b2x1 <= b1x2 <= b2x2 or (b2x1 >= b1x1 and b2x2 <= b1x2) or (
             b2x1 <= b1x1 and b2x2 >= b1x2):
-        #print(b2y1)
-        #print(b1y1)
-        #print(b2y1 < b1y1)
-        if b2y1 < b1y1 + gap_padding_factor * height: # (0,0) is top left
+        # print(b2y1)
+        # print(b1y1)
+        # print(b2y1 < b1y1)
+        if b2y1 < b1y1 + gap_padding_factor * height:  # (0,0) is top left
             return True
 
     return False
+
 
 def is_below(b1: BboxCluster, b2: BboxCluster, gap_padding_factor=0.5):
     b1p1, b1p2 = b1.get_bottom_line_of_bbox()
@@ -94,10 +95,10 @@ def is_below(b1: BboxCluster, b2: BboxCluster, gap_padding_factor=0.5):
     height = b2.get_average_height()
     if b2x1 <= b1x1 <= b2x2 or b2x1 <= b1x2 <= b2x2 or (b2x1 >= b1x1 and b2x2 <= b1x2) or (
             b2x1 <= b1x1 and b2x2 >= b1x2):
-        #print(b2y1)
-        #print(b1y1)
-        #print(b2y1 < b1y1)
-        if b2y1 + gap_padding_factor * height > b1y1: # (0,0) is top left
+        # print(b2y1)
+        # print(b1y1)
+        # print(b2y1 < b1y1)
+        if b2y1 + gap_padding_factor * height > b1y1:  # (0,0) is top left
             return True
 
     return False
@@ -164,7 +165,6 @@ def get_bboxs_below(bbox: BboxCluster, bbox_cluster: List[BboxCluster], height_t
 
 
 def analyse(baselines, image, image2):
-    image = 1 - image
     result = []
     heights = []
     length = []
@@ -179,7 +179,7 @@ def analyse(baselines, image, image2):
         result.append((baseline, index, height))
         heights.append(height)
         length.append(baseline[-1][1])
-    img = image2.convert('RGB')
+    img = Image.fromarray((1 - image) * 255).convert('RGB')
     draw = ImageDraw.Draw(img)
     colors = [(255, 0, 0),
               (0, 255, 0),
@@ -237,13 +237,19 @@ def analyse(baselines, image, image2):
     clusterd = generate_clustered_lines(cluster_results)
     bboxes = generate_bounding_box_cluster(clustered=clusterd)
     bboxes = connect_bounding_box(bboxes)
-    for ind, x in enumerate(bboxes):
-        if x.bbox:
-            draw.line(x.bbox + [x.bbox[0]], fill=colors[ind % len(colors)], width=3)
-
+    '''
+    for ind, x in enumerate(result):
+            baseline2 = [[z[0], z[1] - x[2]] for z in x[0]]
+            a = x[0]
+            b = list(reversed(baseline2))
+            c = [x[0][0]]
+            d = a + b + c
+            f = list(itertools.chain.from_iterable(d))
+            draw.line(list(itertools.chain.from_iterable(d)), fill=colors[ind % len(colors)], width=3)
     array = np.array(img)
-    # pyplot.imshow(array)
-    # pyplot.show()
+    pyplot.imshow(array)
+    pyplot.show()
+    '''
     return bboxes
 
 
@@ -297,7 +303,7 @@ def connect_bounding_box(bboxes: [List[BboxCluster]]):
             type1 = cluster[-1].baselines[0].cluster_type
             type2 = x.baselines[0].cluster_type
             if len(get_bboxs_above(x, bboxes)) > 1 or len(get_bboxs_below(cluster[-1], bboxes)) > 1:
-                    #or (len(clusters) != 0 and len(clusters[-1]) != 0 and len(get_bboxs_below(clusters[-1][-1], bboxes)) > 1):
+                # or (len(clusters) != 0 and len(clusters[-1]) != 0 and len(get_bboxs_below(clusters[-1][-1], bboxes)) > 1):
                 clusters.append(cluster)
                 cluster = []
                 break
@@ -310,7 +316,6 @@ def connect_bounding_box(bboxes: [List[BboxCluster]]):
                         while True:
                             if ind - pointer >= 0:
                                 if is_above(bboxes_clone[ind - pointer], cluster[-1]):
-
                                     box = bboxes_clone[ind - pointer]
                                     break
                             else:
@@ -424,6 +429,34 @@ def get_top(image, baseline, threshold=0.2):
         height = height + 1
         before = now if now > before else before
     return list(zip(indexes[1], indexes[0])), height
+
+
+def get_top_alternative(image, baseline, threshold=0.1, kernel=3):
+    x, y = zip(*baseline)
+    indexes = (np.array(y), np.array(x))
+    before = 0
+    height = 0
+    line_blackness = []
+
+    while True:
+        x_indexes = np.empty(0, dtype=int)
+        y_indexes = np.empty(0, dtype=int)
+        for i in range(-kernel, kernel + 1, 1):
+            x_indexes = np.concatenate((x_indexes, indexes[0] - (i + height)))
+            y_indexes = np.concatenate((y_indexes, indexes[1]))
+
+        indexes_to_test = (x_indexes, y_indexes)
+        now = np.sum(image[indexes_to_test])
+        if height > 5 and np.mean(line_blackness[-2]) < np.max(line_blackness) * 0.2:
+            break
+        if height > 3:
+            line_blackness.append(now)
+
+        print("before {}, height {} now {}".format(before, height, now))
+        height = height + 1
+        before = now if now > before else before
+    height = height - 2
+    return list(zip(indexes[1] - height, indexes[0])), height
 
 
 if __name__ == '__main__':
