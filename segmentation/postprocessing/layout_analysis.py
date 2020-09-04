@@ -443,7 +443,7 @@ def get_top(image, baseline, threshold=0.2):
     while True:
         indexes = (indexes[0] - 1, indexes[1])
         now = np.sum(image[indexes])
-        if before * threshold > now and height > 5:
+        if (before * threshold > now or now <= 5) and height > 5:
             break
         height = height + 1
         before = now if now > before else before

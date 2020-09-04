@@ -62,6 +62,7 @@ def marginalia_detection(bboxs: List[BboxCluster], image, num_border_threshold=5
         draw.line(r_borders[x], fill=(0, 0, 0), width=3)
     from matplotlib import pyplot as plt
     from shapely.geometry import LineString
+
     for x in l_borders.keys():
         border = sorted(l_borders[x], key=lambda k: k[1])
         length = (border[-1][1] - border[0][1])
@@ -78,8 +79,8 @@ def marginalia_detection(bboxs: List[BboxCluster], image, num_border_threshold=5
                     baselines: List[BaselineResult] = []
                     for ind_1, baseline in enumerate(box.baselines):
                         baseline: BaselineResult = baseline
-                        for ind2, point in enumerate(baseline.baseline):
-                            if baseline.baseline[-1][0] > x:
+                        if baseline.baseline[-1][0] > x:
+                            for ind2, point in enumerate(baseline.baseline):
                                 if point[0] > x:
                                     baselines.append(BaselineResult(baseline.baseline[:ind2 - 1], height=baseline.height,
                                                                     font_width=baseline.font_width,
@@ -91,11 +92,44 @@ def marginalia_detection(bboxs: List[BboxCluster], image, num_border_threshold=5
                                                                     cluster_location=baseline.cluster_location))
                                     break
 
-                            else:
-                                baselines.append(baseline)
+                        else:
+                            baselines.append(baseline)
                     bboxs[ind].set_baselines(baselines)
 
+    for x in r_borders.keys():
+        border = sorted(r_borders[x], key=lambda k: k[1])
+        length = (border[-1][1] - border[0][1])
+        if len(r_borders[x]) > num_border_threshold and length > min_border_length:
 
+            for ind, box in enumerate(bboxs):
+                top_line = box.get_top_line_of_bbox()
+                line1 = LineString(border)
+                line2 = LineString(top_line)
+                point = line1.intersection(line2)
+                if point.geom_type != "LineString":
+                    assert point.geom_type == "Point", "no point geom type"
+                    x, y = point.xy
+                    baselines: List[BaselineResult] = []
+                    for ind_1, baseline in enumerate(box.baselines):
+                        baseline: BaselineResult = baseline
+                        if not (baseline.baseline[-1][0] < x or baseline.baseline[0][0] > x):
+                            for ind2, point in enumerate(baseline.baseline):
+                                if point[0] > x:
+                                    if not (len(baseline.baseline[:ind2 - 1]) < 5 or len(baseline.baseline[ind2:]) < 5):
+                                        baselines.append(BaselineResult(baseline.baseline[:ind2 - 1], height=baseline.height,
+                                                                        font_width=baseline.font_width,
+                                                                        cluster_type=baseline.cluster_type,
+                                                                        cluster_location=baseline.cluster_location))
+                                        baselines.append(BaselineResult(baseline.baseline[ind2:], height=baseline.height,
+                                                                        font_width=baseline.font_width,
+                                                                        cluster_type=baseline.cluster_type,
+                                                                        cluster_location=baseline.cluster_location))
+                                    else:
+                                        baselines.append(baseline)
+                                    break
+                        else:
+                            baselines.append(baseline)
+                    bboxs[ind].set_baselines(baselines)
     plt.imshow(np.array(img))
     plt.show()
     return bboxs
