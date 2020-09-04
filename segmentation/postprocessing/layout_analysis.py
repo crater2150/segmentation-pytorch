@@ -36,9 +36,13 @@ class BaselineResult(NamedTuple):
                               )
 
 
-class BboxCluster(NamedTuple):
-    baselines: List[BaselineResult]
-    bbox: List[Tuple[any, any]]
+class BboxCluster():
+
+    def __init__(self, baselines, bbox):
+
+        self.baselines: List[BaselineResult] = baselines
+        # (x_min, y_min), (x_max, y_min ), (x_max, y_max), (x_min, y_max)]
+        self.bbox: List[Tuple[any, any]] = bbox
 
     def scale(self, scale_factor):
         return BboxCluster(baselines=[x.scale(scale_factor) for x in self.baselines],
@@ -64,6 +68,21 @@ class BboxCluster(NamedTuple):
         bbox_sorted = sorted(self.bbox, key=lambda k: (k[1], k[0]))
 
         return bbox_sorted[0], bbox_sorted[1]
+
+    def get_left_x(self):
+        return self.bbox[0][0]
+
+    def get_right_x(self):
+        return self.bbox[1][0]
+
+    def get_top_y(self):
+        return self.bbox[0][1]
+
+    def get_bottom_y(self):
+        return self.bbox[-1][1]
+
+    def set_baselines(self, bl: List[BaselineResult]):
+        self.baselines = bl
 
 
 def is_above(b1: BboxCluster, b2: BboxCluster, gap_padding_factor=0.5):

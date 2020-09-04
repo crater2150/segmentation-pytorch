@@ -16,3 +16,4 @@ opencv-python
 sklearn
 ezodf
 lxml
+shapely

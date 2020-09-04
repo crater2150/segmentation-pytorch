@@ -75,6 +75,7 @@ def main():
     parser.add_argument("--output_xml_path", type=str, default=None)
     parser.add_argument("--max_line_height", type=int, default=None)
     parser.add_argument("--min_line_height", type=int, default=None)
+    parser.add_argument("--marginalia_postprocessing", action="store_true")
     parser.add_argument("--debug", action="store_true")
 
     args = parser.parse_args()
@@ -116,6 +117,12 @@ def main():
                 #plt.show()
 
                 bboxs = analyse(baselines=baselines, image=(1 - binary), image2=image)
+                from segmentation.postprocessing.marginialia_detection import marginalia_detection
+                if args.marginalia_postprocessing:
+                    bboxs = marginalia_detection(bboxs, image)
+                    baselines_d = [bl.baseline for cluster in bboxs for bl in cluster.baselines]
+                    bboxs = analyse(baselines=baselines_d, image=(1 - binary), image2=image)
+
                 if args.max_line_height is not None or args.min_line_height is not None:
                     heights = []
                     for bx in bboxs:
@@ -147,7 +154,6 @@ def main():
                         file_path = os.path.join(args.output_path_debug_images, basename)
                         img.save(file_path)
                         filename =os.path.basename(file).split(".")
-                        print(filename)
                         basename = "debug_" + filename[0] + "_b1_." + filename[-1]
                         file_path = os.path.join(args.output_path_debug_images, basename)
                         img2 = Image.fromarray(binary*255).convert('RGB')
