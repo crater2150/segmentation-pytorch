@@ -8,7 +8,7 @@ from matplotlib import pyplot
 from skimage.filters import try_all_threshold, threshold_local
 
 from segmentation.postprocessing.baseline_extraction import extraxct_baselines_from_probability_map
-from segmentation.postprocessing.layout_analysis import analyse
+from segmentation.postprocessing.layout_analysis import analyse, layout_anaylsis
 from segmentation.settings import PredictorSettings
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -87,6 +87,7 @@ def main():
         networks.append(network)
     ensemble = Ensemble(networks)
     for file in files:
+        print(file)
         img = Image.open(file)  # open image
         scale_factor_multiplier = 1
         while True:
@@ -116,9 +117,9 @@ def main():
                 #ax[1].imshow(binary2)
                 #plt.show()
 
-                bboxs = analyse(baselines=baselines, image=(1 - binary), image2=image)
+                bboxs = layout_anaylsis(baselines=baselines, image=(1 - binary), image2=image, marginalia=args.marginalia_postprocessing)
                 from segmentation.postprocessing.marginialia_detection import marginalia_detection
-                if args.marginalia_postprocessing:
+                if args.marginalia_postprocessing and False:
                     bboxs = marginalia_detection(bboxs, image)
                     baselines_d = [bl.baseline for cluster in bboxs for bl in cluster.baselines]
                     bboxs = analyse(baselines=baselines_d, image=(1 - binary), image2=image)
@@ -153,11 +154,11 @@ def main():
                         basename = "debug_" + os.path.basename(file)
                         file_path = os.path.join(args.output_path_debug_images, basename)
                         img.save(file_path)
-                        filename =os.path.basename(file).split(".")
-                        basename = "debug_" + filename[0] + "_b1_." + filename[-1]
-                        file_path = os.path.join(args.output_path_debug_images, basename)
-                        img2 = Image.fromarray(binary*255).convert('RGB')
-                        img2.save(file_path)
+                        #filename =os.path.basename(file).split(".")
+                        #basename = "debug_" + filename[0] + "_b1_." + filename[-1]
+                        #file_path = os.path.join(args.output_path_debug_images, basename)
+                        #img2 = Image.fromarray(binary*255).convert('RGB')
+                        #img2.save(file_path)
                         #basename = "debug_" + filename[0] + "_b2_." + filename[-1]
                         #file_path = os.path.join(args.output_path_debug_images, basename)
                         #img2 = Image.fromarray((1-binary2)*255).convert('RGB')

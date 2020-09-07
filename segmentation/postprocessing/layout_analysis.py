@@ -6,6 +6,9 @@ from collections import namedtuple
 from matplotlib import pyplot
 from skimage.morphology import skeletonize
 from sklearn.cluster import dbscan
+
+from segmentation.postprocessing.data_classes import BboxCluster, BaselineResult
+from segmentation.postprocessing.marginialia_detection import marginalia_detection
 from segmentation.util import previous_and_next
 from segmentation.network import Network
 from segmentation.postprocessing.baseline_extraction import extraxct_baselines_from_probability_map
@@ -19,70 +22,7 @@ Todo: Refactor file
 '''
 
 
-class BaselineResult(NamedTuple):
-    baseline: List
-    height: int
-    font_width: float
-    cluster_type: int
-    cluster_location: int
 
-    def scale(self, scale_factor):
-        baseline = [(x[0] * scale_factor, x[1] * scale_factor) for x in self.baseline]
-        return BaselineResult(baseline=baseline,
-                              height=self.height * scale_factor,
-                              font_width=self.font_width,
-                              cluster_location=self.cluster_location,
-                              cluster_type=self.cluster_type
-                              )
-
-
-class BboxCluster():
-
-    def __init__(self, baselines, bbox):
-
-        self.baselines: List[BaselineResult] = baselines
-        # (x_min, y_min), (x_max, y_min ), (x_max, y_max), (x_min, y_max)]
-        self.bbox: List[Tuple[any, any]] = bbox
-
-    def scale(self, scale_factor):
-        return BboxCluster(baselines=[x.scale(scale_factor) for x in self.baselines],
-                           bbox=[(x[0] * scale_factor, x[1] * scale_factor) for x in self.bbox])
-
-    def get_average_height(self):
-        return np.mean([x.height for x in self.baselines])
-
-    def get_char_cluster_type(self):
-        return self.baselines[0].cluster_type
-
-    def get_location_cluster_type(self):
-        return self.baselines[0].cluster_location
-
-    def number_of_baselines_in_cluster(self):
-        return len(self.baselines)
-
-    def get_bottom_line_of_bbox(self):
-        bbox_sorted = sorted(self.bbox, key=lambda k: (k[1], k[0]))
-        return bbox_sorted[-2], bbox_sorted[-1]
-
-    def get_top_line_of_bbox(self):
-        bbox_sorted = sorted(self.bbox, key=lambda k: (k[1], k[0]))
-
-        return bbox_sorted[0], bbox_sorted[1]
-
-    def get_left_x(self):
-        return self.bbox[0][0]
-
-    def get_right_x(self):
-        return self.bbox[1][0]
-
-    def get_top_y(self):
-        return self.bbox[0][1]
-
-    def get_bottom_y(self):
-        return self.bbox[-1][1]
-
-    def set_baselines(self, bl: List[BaselineResult]):
-        self.baselines = bl
 
 
 def is_above(b1: BboxCluster, b2: BboxCluster, gap_padding_factor=0.5):
@@ -183,6 +123,29 @@ def get_bboxs_below(bbox: BboxCluster, bbox_cluster: List[BboxCluster], height_t
     return result_direct
 
 
+def layout_anaylsis(baselines, image , image2, marginalia=True):
+    bboxes = analyse(baselines, image, image2)
+    if marginalia:
+        bboxs = marginalia_detection(bboxes, image2)
+        baselines_d = [bl.baseline for cluster in bboxs for bl in cluster.baselines]
+        bboxes = analyse(baselines=baselines_d, image=image, image2=image2)
+        pass
+    bboxes = connect_bounding_box(bboxes)
+    '''
+    for ind, x in enumerate(result):
+            baseline2 = [[z[0], z[1] - x[2]] for z in x[0]]
+            a = x[0]
+            b = list(reversed(baseline2))
+            c = [x[0][0]]
+            d = a + b + c
+            f = list(itertools.chain.from_iterable(d))
+            draw.line(list(itertools.chain.from_iterable(d)), fill=colors[ind % len(colors)], width=3)
+    array = np.array(img)
+    pyplot.imshow(array)
+    pyplot.show()
+    '''
+    return bboxes
+    pass
 def analyse(baselines, image, image2):
     result = []
     heights = []
@@ -194,10 +157,11 @@ def analyse(baselines, image, image2):
         pyplot.show()
         return
     for baseline in baselines:
-        index, height = get_top(image=image, baseline=baseline)
-        result.append((baseline, index, height))
-        heights.append(height)
-        length.append(baseline[-1][1])
+        if len(baseline) != 0:
+            index, height = get_top(image=image, baseline=baseline)
+            result.append((baseline, index, height))
+            heights.append(height)
+            length.append(baseline[-1][1])
     img = Image.fromarray((1 - image) * 255).convert('RGB')
     draw = ImageDraw.Draw(img)
     colors = [(255, 0, 0),
@@ -255,21 +219,8 @@ def analyse(baselines, image, image2):
     cluster_results = [x for x in cluster_results if x.height > 5]
     clusterd = generate_clustered_lines(cluster_results)
     bboxes = generate_bounding_box_cluster(clustered=clusterd)
-    bboxes = connect_bounding_box(bboxes)
-    '''
-    for ind, x in enumerate(result):
-            baseline2 = [[z[0], z[1] - x[2]] for z in x[0]]
-            a = x[0]
-            b = list(reversed(baseline2))
-            c = [x[0][0]]
-            d = a + b + c
-            f = list(itertools.chain.from_iterable(d))
-            draw.line(list(itertools.chain.from_iterable(d)), fill=colors[ind % len(colors)], width=3)
-    array = np.array(img)
-    pyplot.imshow(array)
-    pyplot.show()
-    '''
     return bboxes
+
 
 
 def connect_bounding_box(bboxes: [List[BboxCluster]]):
