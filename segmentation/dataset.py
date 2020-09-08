@@ -69,7 +69,7 @@ def default_preprocessing(x):
 
 
 def process(image, mask, rgb, preprocessing, apply_preprocessing, augmentation, color_map=None,
-            binary_augmentation=True):
+            binary_augmentation=True, ocropy=True):
     if rgb:
         image = gray_to_rgb(image)
     result = {"image": image}
@@ -90,11 +90,17 @@ def process(image, mask, rgb, preprocessing, apply_preprocessing, augmentation, 
 
     if augmentation is not None and binary_augmentation:
         from segmentation.preprocessing.basic_binarizer import gauss_threshold
-        from matplotlib import pyplot as plt
+        from segmentation.preprocessing.ocrupus import binarize
         ran = np.random.randint(1, 5)
         if ran == 1:
-            image = rgb2gray(result["image"]).astype(np.uint8)
-            result["image"] = gray_to_rgb(gauss_threshold(image))
+            if ocropy:
+                binary = binarize(result["image"].astype("float64")).astype("uint8")*255
+                gray = gray_to_rgb(binary)
+                result["image"] = gray_to_rgb(gray)
+            else:
+                image = rgb2gray(result["image"]).astype(np.uint8)
+                result["image"] = gray_to_rgb(gauss_threshold(image))
+
     if apply_preprocessing is not None and apply_preprocessing:
         result["image"] = preprocessing(result["image"])
     result = compose([post_transforms()])(**result)
