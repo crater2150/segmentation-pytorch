@@ -182,14 +182,15 @@ def analyse(baselines, image, image2):
                                margin_right=0)
         cut = crop_image_by_polygon(polygon=pol, image=image)
         from segmentation.postprocessing.util import get_stroke_width
-        score1, score2 = get_stroke_width(cut[0])
-        baseline = x[0]
-        p1 = baseline[0]
-        p2 = baseline[-1]
-        vector = [x[2] / np.max(heights), score1]
-        vector2 = [p1[0] / max(length), p2[0] / max(length)]
-        result_dict[ind] = [baseline, score1, x[2], vector, vector2]
-        draw.line(list(itertools.chain.from_iterable(baseline)), fill=colors[ind % len(colors)], width=2)
+        if cut[0] is not None:
+            score1, score2 = get_stroke_width(cut[0])
+            baseline = x[0]
+            p1 = baseline[0]
+            p2 = baseline[-1]
+            vector = [x[2] / np.max(heights), score1]
+            vector2 = [p1[0] / max(length), p2[0] / max(length)]
+            result_dict[ind] = [baseline, score1, x[2], vector, vector2]
+            draw.line(list(itertools.chain.from_iterable(baseline)), fill=colors[ind % len(colors)], width=2)
 
     inds = result_dict.keys()
     vectors = [result_dict[indice][3] for indice in inds]

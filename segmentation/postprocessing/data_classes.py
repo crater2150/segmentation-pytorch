@@ -24,11 +24,13 @@ class BaselineResult(NamedTuple):
     def get_min_y(self):
         return min([t[1] for t in self.baseline])
 
+    def get_avg_y(self):
+        return np.mean([t[1] for t in self.baseline])
+
 
 class BboxCluster():
 
     def __init__(self, baselines, bbox):
-
         self.baselines: List[BaselineResult] = baselines
         # (x_min, y_min), (x_max, y_min ), (x_max, y_max), (x_min, y_max)]
         self.bbox: List[Tuple[any, any]] = bbox
