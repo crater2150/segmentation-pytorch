@@ -45,6 +45,8 @@ def estimate_local_whitelevel(image, zoom=0.1, perc=80, range=20, debug=0):
 
     flat = np.clip(image[:w, :h]-m[:w, :h] + 1, 0, 1)
     flat = np.pad(flat, ((0, w_m - w), (0, h_m - h)), 'edge')
+    flat = flat[:image.shape[0], :image.shape[1]]
+
     return flat
 
 
