@@ -68,14 +68,19 @@ def main():
                         help="load models and use it for inference")
     parser.add_argument("--scale_area", type=int, default=1000000,
                         help="max pixel amount of an image")
-    parser.add_argument("--output_path_debug_images", type=str, default=None)
-    parser.add_argument("--show_baselines", action="store_true")
-    parser.add_argument("--show_layout", action="store_true")
-    parser.add_argument("--output_xml", action="store_true")
-    parser.add_argument("--output_xml_path", type=str, default=None)
-    parser.add_argument("--max_line_height", type=int, default=None)
-    parser.add_argument("--min_line_height", type=int, default=None)
-    parser.add_argument("--marginalia_postprocessing", action="store_true")
+    parser.add_argument("--output_path_debug_images", type=str, default=None, help="Directory of the debug images")
+    parser.add_argument("--show_baselines", action="store_true", help="Draws baseline to the debug image")
+    parser.add_argument("--show_layout", action="store_true", help="Draws layout regions to the debug image")
+    parser.add_argument("--output_xml", action="store_true", help="Outputs Xml Files")
+    parser.add_argument("--output_xml_path", type=str, default=None, help="Directory of the XML output")
+    parser.add_argument("--max_line_height", type=int, default=None,
+                        help="If the average line_height of an document is bigger then the specified value, "
+                             "the document is scaled down an processed again on the new resolution. "
+                             "Proposed Value == 22")
+    parser.add_argument("--min_line_height", type=int, default=None,
+                        help="If the average line_height of an document is smaller then the specified value, "
+                             "the document is scaled up an processed again on the new resolution")
+    parser.add_argument("--marginalia_postprocessing", action="store_true", help="Enables marginalia postprocessing")
     parser.add_argument("--debug", action="store_true")
 
     args = parser.parse_args()
@@ -101,37 +106,43 @@ def main():
                 from segmentation.preprocessing.basic_binarizer import gauss_threshold
                 from segmentation.preprocessing.util import to_grayscale
 
-                #grayscale = to_grayscale(np.array(image))
                 from segmentation.preprocessing.ocrupus import binarize
                 binary = (binarize(np.array(image).astype("float64"))).astype("uint8")
-                #binary = gauss_threshold(image=grayscale) / 255
                 from matplotlib import pyplot as plt
-                #fig, ax = try_all_threshold(grayscale, figsize=(10, 8), verbose=False)
-                #plt.show()
-                #binary = (grayscale > threshold_local(grayscale, 3, "gaussian", offset=0.5))
-                #binary = binary.astype('uint8')
-                #plt.imshow(binary3)
-                #plt.show()
-                #f, ax = plt.subplots(1, 2 , True, True)
-                #ax[0].imshow(binary)
-                #ax[1].imshow(binary2)
-                #plt.show()
+                # plt.imshow(binary)
+                # plt.show()
+                # grayscale = to_grayscale(np.array(image))
+                # binary2 = gauss_threshold(image=grayscale)
+                # plt.imshow(binary2)
+                # plt.show()
+                from matplotlib import pyplot as plt
+                # fig, ax = try_all_threshold(grayscale, figsize=(10, 8), verbose=False)
+                # plt.show()
+                # binary = (grayscale > threshold_local(grayscale, 3, "gaussian", offset=0.5))
+                # binary = binary.astype('uint8')
+                # plt.imshow(binary3)
+                # plt.show()
+                # f, ax = plt.subplots(1, 2 , True, True)
+                # ax[0].imshow(binary)
+                # ax[1].imshow(binary2)
+                # plt.show()
 
-                bboxs = layout_anaylsis(baselines=baselines, image=(1 - binary), image2=image, marginalia=args.marginalia_postprocessing)
+                bboxs = layout_anaylsis(baselines=baselines, image=(1 - binary), image2=image,
+                                        marginalia=args.marginalia_postprocessing)
                 from segmentation.postprocessing.marginialia_detection import marginalia_detection
                 if args.marginalia_postprocessing and False:
                     bboxs = marginalia_detection(bboxs, image)
                     baselines_d = [bl.baseline for cluster in bboxs for bl in cluster.baselines]
                     bboxs = analyse(baselines=baselines_d, image=(1 - binary), image2=image)
 
-                if args.max_line_height is not None or args.min_line_height is not None:
+                if args.max_line_height is not None or args.min_line_height is not None and scale_factor_multiplier == 1:
                     heights = []
                     for bx in bboxs:
                         for b_line in bx.baselines:
                             heights.append(b_line.height)
                     if (args.max_line_height is not None and np.median(heights) > args.max_line_height) or \
                             (args.min_line_height is not None and np.median(heights) < args.min_line_height):
-                        scale_factor_multiplier = 18 / np.median(heights)
+                        scale_factor_multiplier = (args.max_line_height - 7) / np.median(heights)
                         continue
                     print("Avg:{}, Med:{}".format(np.mean(heights), np.median(heights)))
 
@@ -154,15 +165,15 @@ def main():
                         basename = "debug_" + os.path.basename(file)
                         file_path = os.path.join(args.output_path_debug_images, basename)
                         img.save(file_path)
-                        #filename =os.path.basename(file).split(".")
-                        #basename = "debug_" + filename[0] + "_b1_." + filename[-1]
-                        #file_path = os.path.join(args.output_path_debug_images, basename)
-                        #img2 = Image.fromarray(binary*255).convert('RGB')
-                        #img2.save(file_path)
-                        #basename = "debug_" + filename[0] + "_b2_." + filename[-1]
-                        #file_path = os.path.join(args.output_path_debug_images, basename)
-                        #img2 = Image.fromarray((1-binary2)*255).convert('RGB')
-                        #img2.save(file_path)
+                        # filename =os.path.basename(file).split(".")
+                        # basename = "debug_" + filename[0] + "_b1_." + filename[-1]
+                        # file_path = os.path.join(args.output_path_debug_images, basename)
+                        # img2 = Image.fromarray(binary*255).convert('RGB')
+                        # img2.save(file_path)
+                        # basename = "debug_" + filename[0] + "_b2_." + filename[-1]
+                        # file_path = os.path.join(args.output_path_debug_images, basename)
+                        # img2 = Image.fromarray((1-binary2)*255).convert('RGB')
+                        # img2.save(file_path)
                 if (args.show_baselines or args.show_layout) and args.debug:
                     array = np.array(img)
                     pyplot.imshow(array)

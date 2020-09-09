@@ -147,6 +147,9 @@ def layout_anaylsis(baselines, image , image2, marginalia=True):
     return bboxes
     pass
 def analyse(baselines, image, image2):
+    from segmentation.postprocessing.marginalia_detection2 import marginalia_detection as md
+    #borders  = md(baselines, image2)
+
     result = []
     heights = []
     length = []
@@ -221,7 +224,6 @@ def analyse(baselines, image, image2):
     clusterd = generate_clustered_lines(cluster_results)
     bboxes = generate_bounding_box_cluster(clustered=clusterd)
     return bboxes
-
 
 
 def connect_bounding_box(bboxes: [List[BboxCluster]]):
