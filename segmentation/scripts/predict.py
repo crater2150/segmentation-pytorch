@@ -130,12 +130,8 @@ def main():
                 bboxs = layout_anaylsis(baselines=baselines, image=(1 - binary), image2=image,
                                         marginalia=args.marginalia_postprocessing)
                 from segmentation.postprocessing.marginialia_detection import marginalia_detection
-                if args.marginalia_postprocessing and False:
-                    bboxs = marginalia_detection(bboxs, image)
-                    baselines_d = [bl.baseline for cluster in bboxs for bl in cluster.baselines]
-                    bboxs = analyse(baselines=baselines_d, image=(1 - binary), image2=image)
 
-                if args.max_line_height is not None or args.min_line_height is not None and scale_factor_multiplier == 1:
+                if (args.max_line_height is not None or args.min_line_height is not None) and scale_factor_multiplier == 1:
                     heights = []
                     for bx in bboxs:
                         for b_line in bx.baselines:
@@ -143,9 +139,12 @@ def main():
                     if (args.max_line_height is not None and np.median(heights) > args.max_line_height) or \
                             (args.min_line_height is not None and np.median(heights) < args.min_line_height):
                         scale_factor_multiplier = (args.max_line_height - 7) / np.median(heights)
+                        print("Avg:{}, Med:{}".format(np.mean(heights), np.median(heights)))
                         continue
-                    print("Avg:{}, Med:{}".format(np.mean(heights), np.median(heights)))
-
+                if args.marginalia_postprocessing and False:
+                    bboxs = marginalia_detection(bboxs, image)
+                    baselines_d = [bl.baseline for cluster in bboxs for bl in cluster.baselines]
+                    bboxs = analyse(baselines=baselines_d, image=(1 - binary), image2=image)
                 bboxs = [x.scale(1 / scale_factor) for x in bboxs]
                 if args.show_layout:
                     for ind, x in enumerate(bboxs):
@@ -165,11 +164,11 @@ def main():
                         basename = "debug_" + os.path.basename(file)
                         file_path = os.path.join(args.output_path_debug_images, basename)
                         img.save(file_path)
-                        # filename =os.path.basename(file).split(".")
-                        # basename = "debug_" + filename[0] + "_b1_." + filename[-1]
-                        # file_path = os.path.join(args.output_path_debug_images, basename)
-                        # img2 = Image.fromarray(binary*255).convert('RGB')
-                        # img2.save(file_path)
+                        #filename =os.path.basename(file).split(".")
+                        #basename = "debug_" + filename[0] + "_b1_." + filename[-1]
+                        #file_path = os.path.join(args.output_path_debug_images, basename)
+                        #img2 = Image.fromarray(binary*255).convert('RGB')
+                        #img2.save(file_path)
                         # basename = "debug_" + filename[0] + "_b2_." + filename[-1]
                         # file_path = os.path.join(args.output_path_debug_images, basename)
                         # img2 = Image.fromarray((1-binary2)*255).convert('RGB')

@@ -84,7 +84,6 @@ def marginalia_detection(bboxs: List[BboxCluster], image, num_border_threshold=5
                         l_med_b = [(l[0], l[1]) for l in l_border]
                         r_med_b = [(r[0], r[1]) for r in r_border]
                         b = sorted(l_med_b + r_med_b, key=lambda k: k[1])
-                        # b = sorted(border_, key=lambda  k: k[1])
                         from segmentation.postprocessing.simplify_line import VWSimplifier
                         simplifier = VWSimplifier(np.asarray(b, dtype=np.float64))
                         border_line = simplifier.from_number(2)
@@ -115,8 +114,6 @@ def marginalia_detection(bboxs: List[BboxCluster], image, num_border_threshold=5
     updated_border_lines = {}
     for border_key in border_dict.keys():
         border, x, y = border_dict[border_key]
-        l_border = [x.border for x in l_borders[x]]
-        r_border = [x.border for x in r_borders[y]]
         l_id = set([x.bbox_id for x in l_borders[x]])
         r_id = set([x.bbox_id for x in r_borders[y]])
 
@@ -125,9 +122,6 @@ def marginalia_detection(bboxs: List[BboxCluster], image, num_border_threshold=5
         avg_baseline_height = np.mean([bl_res.height for bl, id in b_lines for bl_res in bl])
         baseline_y = sorted([(bl_res.get_avg_y(), id) for bl, id in b_lines for bl_res in bl],
                             key=lambda k: k[0])
-        #print(baseline_y)
-        #print(avg_baseline_height)
-        #print(longer_site)
         gaps = []
         for i in range(len(baseline_y) - 1):
             current = baseline_y[i][0]
@@ -137,7 +131,6 @@ def marginalia_detection(bboxs: List[BboxCluster], image, num_border_threshold=5
         if len(gaps) != 0:
             previous_gap = 0
             for gap in gaps:
-                print(gaps)
                 l_border_segment = [x for x in l_borders[x] if previous_gap < x.border[1] < gap]
                 r_border_segment = [x for x in r_borders[y] if previous_gap < x.border[1] < gap]
                 l_med = np.median([l.border[0] for l in l_border_segment])
@@ -149,7 +142,6 @@ def marginalia_detection(bboxs: List[BboxCluster], image, num_border_threshold=5
                     l_med_b = [(l.border[0] - med, l.border[1]) for l in l_border_segment]
                     r_med_b = [(r.border[0] + med, r.border[1]) for r in r_border_segment]
                     b = sorted(l_med_b + r_med_b, key=lambda k: k[1])
-                    # b = sorted(border_, key=lambda  k: k[1])
                     from segmentation.postprocessing.simplify_line import VWSimplifier
                     simplifier = VWSimplifier(np.asarray(b, dtype=np.float64))
                     border_line = simplifier.from_number(2)
@@ -159,7 +151,6 @@ def marginalia_detection(bboxs: List[BboxCluster], image, num_border_threshold=5
 
         else:
             updated_border_lines[indices] = [border, x, y]
-
             indices = indices + 1
     border_dict = updated_border_lines
     colors = [(255, 0, 0),
@@ -168,7 +159,6 @@ def marginalia_detection(bboxs: List[BboxCluster], image, num_border_threshold=5
               (255, 255, 0),
               (0, 255, 255),
               (255, 0, 255)]
-    # img = Image.fromarray(image * 255)
     img = image.convert('RGB')
     draw = ImageDraw.Draw(img)
     for ind, x in enumerate(bboxs):
@@ -176,7 +166,6 @@ def marginalia_detection(bboxs: List[BboxCluster], image, num_border_threshold=5
             draw.line(x.bbox + [x.bbox[0]], fill=colors[ind % len(colors)], width=3)
             draw.text((x.bbox[0]), "type:{}".format(x.baselines[0].cluster_type))
 
-    from matplotlib import pyplot as plt
     from shapely.geometry import LineString
     for ind, x in enumerate(border_dict.keys()):
         draw.line(border_dict[x][0], fill=(0, 255, 0), width=3)
@@ -222,7 +211,5 @@ def marginalia_detection(bboxs: List[BboxCluster], image, num_border_threshold=5
                         else:
                             baselines.append(baseline)
                     bboxs[ind].set_baselines(baselines)
-    #plt.imshow(np.array(img))
-    #plt.show()
     return bboxs
 

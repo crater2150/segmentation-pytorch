@@ -264,6 +264,7 @@ class Network(object):
         architecture: Architecture = None
         encoder: str = None
         classes: int = None
+        encoder_depth: int = None
         if isinstance(settings, PredictorSettings):
             import os
             with open(str(os.path.splitext(settings.MODEL_PATH)[0]) + '.meta', 'r') as f:
@@ -275,12 +276,15 @@ class Network(object):
                         architecture = Architecture(x.split(" ")[1])
                     if x.startswith('Classes'):
                         classes = int(x.split(" ")[1])
+                    if x.startswith('Encoder_Depth'):
+                        classes = int(x.split(" ")[1])
             if self.settings.PREDICT_DATASET is not None:
                 self.settings.PREDICT_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(encoder)
         elif isinstance(settings, TrainSettings):
             encoder = self.settings.ENCODER
             architecture = self.settings.ARCHITECTURE
             classes = self.settings.CLASSES
+            encoder_depth = self.settings.ENCODER_DEPTH
             self.settings.TRAIN_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(self.settings.ENCODER)
             self.settings.VAL_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(self.settings.ENCODER)
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -290,6 +294,7 @@ class Network(object):
         self.model_params['classes'] = classes
         self.model_params['decoder_use_batchnorm'] = False
         self.model_params['encoder_name'] = encoder
+        self.model_params['encoder_depth'] = encoder_depth
         self.model = get_model(architecture, self.model_params)
         if self.settings.MODEL_PATH:
             try:
@@ -363,7 +368,8 @@ class Network(object):
                                           'lr_encoder: ' + str(self.settings.LEARNINGRATE_ENCODER) + '\n' +
                                           'lr_decoder: ' + str(self.settings.LEARNINGRATE_DECODER) + '\n' +
                                           'lr_seghead: ' + str(self.settings.LEARNINGRATE_SEGHEAD) + '\n' +
-                                          'Batch_Accumulation: ' + str(self.settings.BATCH_ACCUMULATION)
+                                          'Batch_Accumulation: ' + str(self.settings.BATCH_ACCUMULATION) + '\n' +
+                                          'Encoder_Depth: ' + str(self.settings.ENCODER_DEPTH)
                                           )
 
                     highest_accuracy = accuracy
@@ -547,7 +553,7 @@ class Network(object):
                 reversed = transformer.deaugment_mask(output)
                 reversed = torch.nn.functional.interpolate(reversed, size=list(o_shape)[2:], mode="nearest")
                 logger.debug("original: {} input: {}, padded: {} unpadded {} output {} \n".format(str(o_shape),
-                                                                                        str(shape), str(
+                                                                                                  str(shape), str(
                         list(augmented_image.shape)), str(list(output.shape)), str(list(reversed.shape))))
                 outputs.append(reversed)
             stacked = torch.stack(outputs)
@@ -558,7 +564,8 @@ class Network(object):
 
             return out
 
-    def predict_single_image_by_path(self, path, rgb=True, preprocessing=True, tta_aug=None, scale_area=1000000, additional_scale_factor=None):
+    def predict_single_image_by_path(self, path, rgb=True, preprocessing=True, tta_aug=None, scale_area=1000000,
+                                     additional_scale_factor=None):
         from PIL import Image
         from segmentation.dataset import get_rescale_factor, rescale_pil
         from segmentation.util import gray_to_rgb

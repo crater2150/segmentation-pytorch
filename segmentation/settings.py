@@ -18,6 +18,7 @@ class TrainSettings(NamedTuple):
     LEARNINGRATE_ENCODER: float = 1.e-5
     LEARNINGRATE_DECODER: float = 1.e-4
     LEARNINGRATE_SEGHEAD: float = 1.e-4
+    ENCODER_DEPTH: int = 5
     BATCH_ACCUMULATION: int = 8
     TRAIN_BATCH_SIZE: int = 1
     VAL_BATCH_SIZE: int = 1
