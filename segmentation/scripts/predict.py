@@ -102,7 +102,7 @@ def main():
             image = img.resize((int(scale_factor * img.size[0]), int(scale_factor * img.size[1])))
             img = img.convert('RGB')
             draw = ImageDraw.Draw(img)
-            if baselines is not None and False:
+            if baselines is not None:
 
                 from segmentation.preprocessing.basic_binarizer import gauss_threshold
                 from segmentation.preprocessing.util import to_grayscale
@@ -124,30 +124,16 @@ def main():
                         scale_factor_multiplier = (args.max_line_height - 7) / np.median(heights)
                         print("Avg:{}, Med:{}".format(np.mean(heights), np.median(heights)))
                         continue
-                if args.marginalia_postprocessing and False:
+                if args.marginalia_postprocessing:
                     bboxs = marginalia_detection(bboxs, image)
-                    baselines_d = [bl.baseline for cluster in bboxs for bl in cluster.baselines]
-                    bboxs = analyse(baselines=baselines_d, image=(1 - binary), image2=image)
+                    baselines = [bl.baseline for cluster in bboxs for bl in cluster.baselines]
+                    bboxs = analyse(baselines=baselines, image=(1 - binary), image2=image)
                 bboxs = [x.scale(1 / scale_factor) for x in bboxs]
                 if args.show_layout:
                     for ind, x in enumerate(bboxs):
                         if x.bbox:
                             draw.line(x.bbox + [x.bbox[0]], fill=colors[ind % len(colors)], width=3)
                             draw.text((x.bbox[0]), "type:{}".format(x.baselines[0].cluster_type))
-
-                    if args.output_path_debug_images:
-                        basename = "debug_" + os.path.basename(file)
-                        file_path = os.path.join(args.output_path_debug_images, basename)
-                        img.save(file_path)
-                        # filename =os.path.basename(file).split(".")
-                        # basename = "debug_" + filename[0] + "_b1_." + filename[-1]
-                        # = os.path.join(args.output_path_debug_images, basename)
-                        # img2 = Image.fromarray(binary*255).convert('RGB')
-                        # img2.save(file_path)
-                        # basename = "debug_" + filename[0] + "_b2_." + filename[-1]
-                        # file_path = os.path.join(args.output_path_debug_images, basename)
-                        # img2 = Image.fromarray((1-binary2)*255).convert('RGB')
-                        # img2.save(file_path)
 
                 if args.output_xml and args.output_xml_path is not None:
                     from segmentation.gui.xml_util import TextRegion, BaseLine, TextLine, XMLGenerator
@@ -162,8 +148,8 @@ def main():
 
                     xml_gen = XMLGenerator(img.size[0], img.size[1], os.path.basename(file), regions=regions)
                     xml_gen.save_textregions_as_xml(args.output_xml_path)
-            if (args.show_baselines or args.show_layout) and args.debug:
-                from matplotlib import pyplot
+
+            if args.show_baselines:
                 if baselines is not None and len(baselines) > 0:
                     scale_baselines(baselines, 1 / scale_factor)
 
@@ -172,6 +158,15 @@ def main():
                         a = t[::]
                         if args.show_baselines:
                             draw.line(a, fill=colors[ind % len(colors)], width=4)
+
+            if args.output_path_debug_images:
+                basename = "debug_" + os.path.basename(file)
+                file_path = os.path.join(args.output_path_debug_images, basename)
+                img.save(file_path)
+
+            if args.debug:
+                from matplotlib import pyplot
+
                 array = np.array(img)
 
                 pyplot.imshow(array)

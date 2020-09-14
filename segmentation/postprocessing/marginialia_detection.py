@@ -88,28 +88,9 @@ def marginalia_detection(bboxs: List[BboxCluster], image, num_border_threshold=5
                         simplifier = VWSimplifier(np.asarray(b, dtype=np.float64))
                         border_line = simplifier.from_number(2)
                         border_line = border_line.tolist()
-
-                        def border_between(l, r, b):
-                            lx, ly = zip(*l)
-                            lx = [x + 1 for x in lx]
-                            rx, ry = zip(*r)
-                            rx = [x - 1 for x in rx]
-
-                            line = []
-                            for x in b:
-                                x_b, y_b = x
-
-                                in_x_l = np.interp(y_b, ly, lx)
-                                in_x_r = np.interp(y_b, ry, rx)
-
-                                x_b = x_b if x_b > in_x_l else in_x_l
-                                x_b = x_b if x_b < in_x_r else in_x_r
-
-                                line.append((x_b, y_b))
-                            return line
-
                         border_dict[indices] = [[(b[0], b[1]) for b in border_line], x, y]
                         indices = indices + 1
+    '''
     indices = 0
     updated_border_lines = {}
     for border_key in border_dict.keys():
@@ -128,6 +109,7 @@ def marginalia_detection(bboxs: List[BboxCluster], image, num_border_threshold=5
             after = baseline_y[i + 1][0]
             if after - current > avg_baseline_height * 8:
                 gaps.append(baseline_y[i][0])
+        print(gaps)
         if len(gaps) != 0:
             previous_gap = 0
             for gap in gaps:
@@ -153,6 +135,7 @@ def marginalia_detection(bboxs: List[BboxCluster], image, num_border_threshold=5
             updated_border_lines[indices] = [border, x, y]
             indices = indices + 1
     border_dict = updated_border_lines
+    '''
     colors = [(255, 0, 0),
               (0, 255, 0),
               (0, 0, 255),
@@ -211,5 +194,8 @@ def marginalia_detection(bboxs: List[BboxCluster], image, num_border_threshold=5
                         else:
                             baselines.append(baseline)
                     bboxs[ind].set_baselines(baselines)
+    from matplotlib import pyplot as plt
+    plt.imshow(np.array(img))
+    plt.show()
     return bboxs
 

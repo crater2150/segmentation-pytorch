@@ -307,7 +307,6 @@ class Network(object):
         self.model_params['encoder_name'] = encoder if encoder else json_file["ENCODER"]
         self.model_params['encoder_depth'] = json_file["ENCODER_DEPTH"] if json_file else encoder_depth
         #   PÜelf.model_params['decoder_channels'] = json_file["DECODER_CHANNELS"] if json_file else decoder_channel
-        print(decoder_channel)
         self.model = get_model(architecture, self.model_params)
         if self.settings.MODEL_PATH:
             try:
