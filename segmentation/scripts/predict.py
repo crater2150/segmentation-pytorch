@@ -4,7 +4,6 @@ import warnings
 import glob
 import os
 
-from matplotlib import pyplot
 from skimage.filters import try_all_threshold, threshold_local
 
 from segmentation.postprocessing.baseline_extraction import extraxct_baselines_from_probability_map
@@ -39,7 +38,7 @@ class Ensemble:
         res = []
         scale_factor = None
         for m in self.models:
-            p_map, s_factor = m.predict_single_image_by_path(x, rgb=True, preprocessing=True, scale_area=1000000,
+            p_map, s_factor = m.predict_single_image_by_path(x, rgb=True, preprocessing=True, scale_area=scale_area,
                                                              additional_scale_factor=additional_scale_factor)
             scale_factor = s_factor
             res.append(p_map)
@@ -82,6 +81,7 @@ def main():
                              "the document is scaled up an processed again on the new resolution")
     parser.add_argument("--marginalia_postprocessing", action="store_true", help="Enables marginalia postprocessing")
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--processes", type=int, default=8)
 
     args = parser.parse_args()
     files = list(itertools.chain.from_iterable([glob.glob(x) for x in args.image_path]))
@@ -98,35 +98,17 @@ def main():
         while True:
             p_map, scale_factor = ensemble(file, scale_area=args.scale_area,
                                            additional_scale_factor=scale_factor_multiplier)
-            baselines = extraxct_baselines_from_probability_map(p_map)
+            baselines = extraxct_baselines_from_probability_map(p_map, processes = args.processes)
             image = img.resize((int(scale_factor * img.size[0]), int(scale_factor * img.size[1])))
-            if baselines is not None:
-                img = img.convert('RGB')
-                draw = ImageDraw.Draw(img)
+            img = img.convert('RGB')
+            draw = ImageDraw.Draw(img)
+            if baselines is not None and False:
+
                 from segmentation.preprocessing.basic_binarizer import gauss_threshold
                 from segmentation.preprocessing.util import to_grayscale
 
                 from segmentation.preprocessing.ocrupus import binarize
                 binary = (binarize(np.array(image).astype("float64"))).astype("uint8")
-                from matplotlib import pyplot as plt
-                # plt.imshow(binary)
-                # plt.show()
-                # grayscale = to_grayscale(np.array(image))
-                # binary2 = gauss_threshold(image=grayscale)
-                # plt.imshow(binary2)
-                # plt.show()
-                from matplotlib import pyplot as plt
-                # fig, ax = try_all_threshold(grayscale, figsize=(10, 8), verbose=False)
-                # plt.show()
-                # binary = (grayscale > threshold_local(grayscale, 3, "gaussian", offset=0.5))
-                # binary = binary.astype('uint8')
-                # plt.imshow(binary3)
-                # plt.show()
-                # f, ax = plt.subplots(1, 2 , True, True)
-                # ax[0].imshow(binary)
-                # ax[1].imshow(binary2)
-                # plt.show()
-
                 bboxs = layout_anaylsis(baselines=baselines, image=(1 - binary), image2=image,
                                         marginalia=args.marginalia_postprocessing)
                 from segmentation.postprocessing.marginialia_detection import marginalia_detection
@@ -151,14 +133,7 @@ def main():
                         if x.bbox:
                             draw.line(x.bbox + [x.bbox[0]], fill=colors[ind % len(colors)], width=3)
                             draw.text((x.bbox[0]), "type:{}".format(x.baselines[0].cluster_type))
-                if baselines is not None and len(baselines) > 0:
-                    scale_baselines(baselines, 1 / scale_factor)
 
-                    for ind, x in enumerate(baselines):
-                        t = list(itertools.chain.from_iterable(x))
-                        a = t[::]
-                        if args.show_baselines:
-                            draw.line(a, fill=colors[ind % len(colors)], width=4)
 
                     if args.output_path_debug_images:
                         basename = "debug_" + os.path.basename(file)
@@ -166,17 +141,14 @@ def main():
                         img.save(file_path)
                         #filename =os.path.basename(file).split(".")
                         #basename = "debug_" + filename[0] + "_b1_." + filename[-1]
-                        #file_path = os.path.join(args.output_path_debug_images, basename)
+                        # = os.path.join(args.output_path_debug_images, basename)
                         #img2 = Image.fromarray(binary*255).convert('RGB')
                         #img2.save(file_path)
                         # basename = "debug_" + filename[0] + "_b2_." + filename[-1]
                         # file_path = os.path.join(args.output_path_debug_images, basename)
                         # img2 = Image.fromarray((1-binary2)*255).convert('RGB')
                         # img2.save(file_path)
-                if (args.show_baselines or args.show_layout) and args.debug:
-                    array = np.array(img)
-                    pyplot.imshow(array)
-                    pyplot.show()
+
                 if args.output_xml and args.output_xml_path is not None:
                     from segmentation.gui.xml_util import TextRegion, BaseLine, TextLine, XMLGenerator
                     regions = []
@@ -190,6 +162,20 @@ def main():
 
                     xml_gen = XMLGenerator(img.size[0], img.size[1], os.path.basename(file), regions=regions)
                     xml_gen.save_textregions_as_xml(args.output_xml_path)
+            if (args.show_baselines or args.show_layout) and args.debug:
+                from matplotlib import pyplot
+                if baselines is not None and len(baselines) > 0:
+                    scale_baselines(baselines, 1 / scale_factor)
+
+                    for ind, x in enumerate(baselines):
+                        t = list(itertools.chain.from_iterable(x))
+                        a = t[::]
+                        if args.show_baselines:
+                            draw.line(a, fill=colors[ind % len(colors)], width=4)
+                array = np.array(img)
+
+                pyplot.imshow(array)
+                pyplot.show()
             break
             pass
 

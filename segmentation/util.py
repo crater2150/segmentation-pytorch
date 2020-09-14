@@ -3,6 +3,7 @@ import itertools
 from itertools import zip_longest
 import glob
 from itertools import tee, islice, chain
+from timeit import default_timer as timer
 
 
 def angle_to(p1, p2):
@@ -78,3 +79,14 @@ def rgb2gray(rgb):
     return gray
 
 
+class PerformanceCounter:
+
+    def __init__(self, function_name):
+        self.function_name = function_name
+
+    def __enter__(self):
+        self.start = timer()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        end = timer()
+        print("Time needed for function {}: {} secs".format(self.function_name,end - self.start))
