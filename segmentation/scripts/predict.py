@@ -98,7 +98,7 @@ def main():
         while True:
             p_map, scale_factor = ensemble(file, scale_area=args.scale_area,
                                            additional_scale_factor=scale_factor_multiplier)
-            baselines = extraxct_baselines_from_probability_map(p_map, processes = args.processes)
+            baselines = extraxct_baselines_from_probability_map(p_map, processes=args.processes)
             image = img.resize((int(scale_factor * img.size[0]), int(scale_factor * img.size[1])))
             img = img.convert('RGB')
             draw = ImageDraw.Draw(img)
@@ -113,7 +113,8 @@ def main():
                                         marginalia=args.marginalia_postprocessing)
                 from segmentation.postprocessing.marginialia_detection import marginalia_detection
 
-                if (args.max_line_height is not None or args.min_line_height is not None) and scale_factor_multiplier == 1:
+                if (
+                        args.max_line_height is not None or args.min_line_height is not None) and scale_factor_multiplier == 1:
                     heights = []
                     for bx in bboxs:
                         for b_line in bx.baselines:
@@ -134,16 +135,15 @@ def main():
                             draw.line(x.bbox + [x.bbox[0]], fill=colors[ind % len(colors)], width=3)
                             draw.text((x.bbox[0]), "type:{}".format(x.baselines[0].cluster_type))
 
-
                     if args.output_path_debug_images:
                         basename = "debug_" + os.path.basename(file)
                         file_path = os.path.join(args.output_path_debug_images, basename)
                         img.save(file_path)
-                        #filename =os.path.basename(file).split(".")
-                        #basename = "debug_" + filename[0] + "_b1_." + filename[-1]
+                        # filename =os.path.basename(file).split(".")
+                        # basename = "debug_" + filename[0] + "_b1_." + filename[-1]
                         # = os.path.join(args.output_path_debug_images, basename)
-                        #img2 = Image.fromarray(binary*255).convert('RGB')
-                        #img2.save(file_path)
+                        # img2 = Image.fromarray(binary*255).convert('RGB')
+                        # img2.save(file_path)
                         # basename = "debug_" + filename[0] + "_b2_." + filename[-1]
                         # file_path = os.path.join(args.output_path_debug_images, basename)
                         # img2 = Image.fromarray((1-binary2)*255).convert('RGB')
