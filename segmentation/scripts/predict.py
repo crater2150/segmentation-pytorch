@@ -6,7 +6,7 @@ import os
 
 from skimage.filters import try_all_threshold, threshold_local
 
-from segmentation.postprocessing.baseline_extraction import extraxct_baselines_from_probability_map
+from segmentation.postprocessing.baseline_extraction import extract_baselines_from_probability_map
 from segmentation.postprocessing.layout_analysis import analyse, layout_anaylsis
 from segmentation.settings import PredictorSettings
 
@@ -98,7 +98,7 @@ def main():
         while True:
             p_map, scale_factor = ensemble(file, scale_area=args.scale_area,
                                            additional_scale_factor=scale_factor_multiplier)
-            baselines = extraxct_baselines_from_probability_map(p_map, processes=args.processes)
+            baselines = extract_baselines_from_probability_map(p_map, processes=args.processes)
             image = img.resize((int(scale_factor * img.size[0]), int(scale_factor * img.size[1])))
             img = img.convert('RGB')
             draw = ImageDraw.Draw(img)

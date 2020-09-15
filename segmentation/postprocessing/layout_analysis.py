@@ -11,7 +11,7 @@ from segmentation.postprocessing.data_classes import BboxCluster, BaselineResult
 from segmentation.postprocessing.marginialia_detection import marginalia_detection
 from segmentation.util import previous_and_next
 from segmentation.network import Network
-from segmentation.postprocessing.baseline_extraction import extraxct_baselines_from_probability_map
+from segmentation.postprocessing.baseline_extraction import extract_baselines_from_probability_map
 from segmentation.settings import PredictorSettings
 import numpy as np
 from sklearn.cluster import DBSCAN
@@ -20,9 +20,6 @@ from PIL import Image, ImageDraw, ImageFont
 '''
 Todo: Refactor file
 '''
-
-
-
 
 
 def is_above(b1: BboxCluster, b2: BboxCluster, gap_padding_factor=0.5):
@@ -123,7 +120,7 @@ def get_bboxs_below(bbox: BboxCluster, bbox_cluster: List[BboxCluster], height_t
     return result_direct
 
 
-def layout_anaylsis(baselines, image , image2, marginalia=True):
+def layout_anaylsis(baselines, image, image2, marginalia=True):
     bboxes = analyse(baselines, image, image2)
     if marginalia:
         bboxs = marginalia_detection(bboxes, image2)
@@ -131,33 +128,21 @@ def layout_anaylsis(baselines, image , image2, marginalia=True):
         bboxes = analyse(baselines=baselines_d, image=image, image2=image2)
         pass
     bboxes = connect_bounding_box(bboxes)
-    '''
-    for ind, x in enumerate(result):
-            baseline2 = [[z[0], z[1] - x[2]] for z in x[0]]
-            a = x[0]
-            b = list(reversed(baseline2))
-            c = [x[0][0]]
-            d = a + b + c
-            f = list(itertools.chain.from_iterable(d))
-            draw.line(list(itertools.chain.from_iterable(d)), fill=colors[ind % len(colors)], width=3)
-    array = np.array(img)
-    pyplot.imshow(array)
-    pyplot.show()
-    '''
     return bboxes
-    pass
+
+
 def analyse(baselines, image, image2):
     from segmentation.postprocessing.marginalia_detection2 import marginalia_detection as md
-    #borders  = md(baselines, image2)
+    # borders  = md(baselines, image2)
 
     result = []
     heights = []
     length = []
-    img = image2.convert('RGB')
+    #img = image2.convert('RGB')
     if baselines is None:
-        array = np.array(img)
-        pyplot.imshow(array)
-        pyplot.show()
+        # array = np.array(img)
+        # pyplot.imshow(array)
+        # pyplot.show()
         return
     for baseline in baselines:
         if len(baseline) != 0:
@@ -232,7 +217,7 @@ def connect_bounding_box(bboxes: [List[BboxCluster]]):
     cluster = []
 
     def alpha_shape_from_list_of_bboxes(clusters):
-        def merge_ponts_to_box(point_list):
+        def merge_points_to_box(point_list):
             if len(point_list) == 1:
                 return point_list[0]
 
@@ -250,7 +235,7 @@ def connect_bounding_box(bboxes: [List[BboxCluster]]):
             item = sorted(item, key=lambda k: k.bbox[0][1])
             y = [x.bbox for x in item]
             # points = list(itertools.chain.from_iterable([x.bbox for x in item]))
-            array = merge_ponts_to_box(point_list=y)
+            array = merge_points_to_box(point_list=y)
 
             baselines = []
             for x in item:
@@ -276,7 +261,6 @@ def connect_bounding_box(bboxes: [List[BboxCluster]]):
             type1 = cluster[-1].baselines[0].cluster_type
             type2 = x.baselines[0].cluster_type
             if len(get_bboxs_above(x, bboxes)) > 1 or len(get_bboxs_below(cluster[-1], bboxes)) > 1:
-                # or (len(clusters) != 0 and len(clusters[-1]) != 0 and len(get_bboxs_below(clusters[-1][-1], bboxes)) > 1):
                 clusters.append(cluster)
                 cluster = []
                 break
@@ -459,7 +443,7 @@ if __name__ == '__main__':
     ensemble = Ensemble(networks)
     for file in files0:
         p_map, scale_factor = ensemble(file, scale_area=1000000)
-        baselines = extraxct_baselines_from_probability_map(p_map)
+        baselines = extract_baselines_from_probability_map(p_map)
 
         image = Image.open(file)
         image = image.resize((int(scale_factor * image.size[0]), int(scale_factor * image.size[1])))

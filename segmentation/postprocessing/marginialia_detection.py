@@ -29,14 +29,16 @@ def chunks(l, n):
 
 def marginalia_detection(bboxs: List[BboxCluster], image, num_border_threshold=5, min_border_length=150,
                          max_gap_length=15, min_segment_length=10, number_of_minimum_baselines_to_count_as_border=2,
-                         number_of_minimum_baselines_to_count_as_border2=10):
+                         number_of_minimum_baselines_to_count_as_border2=10, connected_baseline_of_a_border=5):
     change = False
     left_borders = []
     right_borders = []
-
+    index = 0
     for ind, box in enumerate(bboxs):
-        left_borders.append((box.get_left_x(), ind))
-        right_borders.append((box.get_right_x(), ind))
+        for i in box.baselines:
+            left_borders.append((box.get_left_x(), index))
+            right_borders.append((box.get_right_x(), index))
+            index = index + 1
     l = DBSCAN(eps=15, min_samples=1).fit(np.array(left_borders))
     r = DBSCAN(eps=15, min_samples=1).fit(np.array(right_borders))
     from collections import defaultdict
@@ -46,50 +48,54 @@ def marginalia_detection(bboxs: List[BboxCluster], image, num_border_threshold=5
     class Border(NamedTuple):
         border: List[Tuple[Any, Any]]
         bbox_id: int
-
+    index = 0
     for ind, x in enumerate(bboxs):
-        l_c = l.labels_[ind]
-        r_c = r.labels_[ind]
+        l_c = l.labels_[index]
+        r_c = r.labels_[index]
         for _ in x.baselines:
             l_borders[l_c].append(Border(border=(x.get_left_x() - 1, x.get_top_y()), bbox_id=ind))
             l_borders[l_c].append(Border(border=(x.get_left_x() - 1, x.get_bottom_y()), bbox_id=ind))
         for _ in x.baselines:
             r_borders[r_c].append(Border(border=(x.get_right_x() + 1, x.get_top_y()), bbox_id=ind))
             r_borders[r_c].append(Border(border=(x.get_right_x() + 1, x.get_bottom_y()), bbox_id=ind))
+        for _ in x.baselines:
+            index = index + 1
 
     indices = 0
     border_dict = defaultdict(list)
     for x in l_borders.keys():
         l_med = np.median([l.border[0] for l in l_borders[x]])
-
         for y in r_borders.keys():
             r_med = np.median([r.border[0] for r in r_borders[y]])
+
             med = abs(l_med - r_med)
             # mean = abs(l_mean - r_mean)
             if med <= max_gap_length:
                 l_border = [x.border for x in l_borders[x]]
                 r_border = [x.border for x in r_borders[y]]
-                l_id = set([x.bbox_id for x in l_borders[x]])
-                r_id = set([x.bbox_id for x in r_borders[y]])
+                l_id = [x.bbox_id for x in l_borders[x]]
+                r_id = [x.bbox_id for x in r_borders[y]]
 
                 min_y_l = min(l_border, key=lambda k: k[1])[1]
                 max_y_l = max(l_border, key=lambda k: k[1])[1]
                 min_y_r = min(r_border, key=lambda k: k[1])[1]
                 max_y_r = max(r_border, key=lambda k: k[1])[1]
 
-                if not (max_y_l < min_y_r or max_y_r < min_y_l) and not bool(l_id & r_id):
-
+                if not (max_y_l < min_y_r or max_y_r < min_y_l) and not bool(set(l_id) & set(r_id)):
                     if min(len(l_border), len(r_border)) >= number_of_minimum_baselines_to_count_as_border and \
                             max(len(l_border), len(r_border)) >= number_of_minimum_baselines_to_count_as_border2 * 2:
-                        l_med_b = [(l[0], l[1]) for l in l_border]
-                        r_med_b = [(r[0], r[1]) for r in r_border]
-                        b = sorted(l_med_b + r_med_b, key=lambda k: k[1])
-                        from segmentation.postprocessing.simplify_line import VWSimplifier
-                        simplifier = VWSimplifier(np.asarray(b, dtype=np.float64))
-                        border_line = simplifier.from_number(2)
-                        border_line = border_line.tolist()
-                        border_dict[indices] = [[(b[0], b[1]) for b in border_line], x, y]
-                        indices = indices + 1
+                        #print(max(max([r_id.count(x) for x in set(r_id)]), max([l_id.count(x) for x in set(l_id)])))
+                        if max(max([r_id.count(x) for x in set(r_id)]), max([l_id.count(x) for x in set(l_id)])) \
+                                >= connected_baseline_of_a_border * 2:
+                            l_med_b = [(l[0], l[1]) for l in l_border]
+                            r_med_b = [(r[0], r[1]) for r in r_border]
+                            b = sorted(l_med_b + r_med_b, key=lambda k: k[1])
+                            from segmentation.postprocessing.simplify_line import VWSimplifier
+                            simplifier = VWSimplifier(np.asarray(b, dtype=np.float64))
+                            border_line = simplifier.from_number(2)
+                            border_line = border_line.tolist()
+                            border_dict[indices] = [[(b[0], b[1]) for b in border_line], x, y]
+                            indices = indices + 1
     '''
     indices = 0
     updated_border_lines = {}
@@ -194,8 +200,7 @@ def marginalia_detection(bboxs: List[BboxCluster], image, num_border_threshold=5
                         else:
                             baselines.append(baseline)
                     bboxs[ind].set_baselines(baselines)
-    from matplotlib import pyplot as plt
-    plt.imshow(np.array(img))
-    plt.show()
+    #from matplotlib import pyplot as plt
+    #plt.imshow(np.array(img))
+    #plt.show()
     return bboxs
-
