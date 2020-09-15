@@ -7,7 +7,7 @@ import os
 from skimage.filters import try_all_threshold, threshold_local
 
 from segmentation.postprocessing.baseline_extraction import extract_baselines_from_probability_map
-from segmentation.postprocessing.layout_analysis import analyse, layout_anaylsis
+from segmentation.postprocessing.layout_analysis import analyse, layout_analysis, connect_bounding_box
 from segmentation.settings import PredictorSettings
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -104,13 +104,9 @@ def main():
             draw = ImageDraw.Draw(img)
             if baselines is not None:
 
-                from segmentation.preprocessing.basic_binarizer import gauss_threshold
-                from segmentation.preprocessing.util import to_grayscale
-
                 from segmentation.preprocessing.ocrupus import binarize
                 binary = (binarize(np.array(image).astype("float64"))).astype("uint8")
-                bboxs = layout_anaylsis(baselines=baselines, image=(1 - binary), image2=image,
-                                        marginalia=args.marginalia_postprocessing)
+                bboxs = analyse(baselines=baselines, image=(1 - binary), image2=image)
                 from segmentation.postprocessing.marginialia_detection import marginalia_detection
 
                 if (
@@ -124,10 +120,12 @@ def main():
                         scale_factor_multiplier = (args.max_line_height - 7) / np.median(heights)
                         print("Avg:{}, Med:{}".format(np.mean(heights), np.median(heights)))
                         continue
+
                 if args.marginalia_postprocessing:
                     bboxs = marginalia_detection(bboxs, image)
                     baselines = [bl.baseline for cluster in bboxs for bl in cluster.baselines]
                     bboxs = analyse(baselines=baselines, image=(1 - binary), image2=image)
+                bboxs = connect_bounding_box(bboxs)
                 bboxs = [x.scale(1 / scale_factor) for x in bboxs]
                 if args.show_layout:
                     for ind, x in enumerate(bboxs):

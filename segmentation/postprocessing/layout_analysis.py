@@ -120,25 +120,11 @@ def get_bboxs_below(bbox: BboxCluster, bbox_cluster: List[BboxCluster], height_t
     return result_direct
 
 
-def layout_anaylsis(baselines, image, image2, marginalia=True):
-    bboxes = analyse(baselines, image, image2)
-    if marginalia:
-        bboxs = marginalia_detection(bboxes, image2)
-        baselines_d = [bl.baseline for cluster in bboxs for bl in cluster.baselines]
-        bboxes = analyse(baselines=baselines_d, image=image, image2=image2)
-        pass
-    bboxes = connect_bounding_box(bboxes)
-    return bboxes
-
-
-def analyse(baselines, image, image2):
-    from segmentation.postprocessing.marginalia_detection2 import marginalia_detection as md
-    # borders  = md(baselines, image2)
-
+def analyse(baselines, image, image2, processes=1):
     result = []
     heights = []
     length = []
-    #img = image2.convert('RGB')
+    # img = image2.convert('RGB')
     if baselines is None:
         # array = np.array(img)
         # pyplot.imshow(array)
