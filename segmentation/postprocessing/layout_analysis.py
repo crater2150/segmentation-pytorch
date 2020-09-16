@@ -1,22 +1,16 @@
 import glob
 import itertools
 import math
-from typing import NamedTuple, List, Tuple, Union
-from collections import namedtuple
-from matplotlib import pyplot
-from skimage.morphology import skeletonize
-from sklearn.cluster import dbscan
-
+import multiprocessing
+from functools import partial
+from typing import List
 from segmentation.postprocessing.data_classes import BboxCluster, BaselineResult
-from segmentation.postprocessing.marginialia_detection import marginalia_detection
-from segmentation.util import previous_and_next
 from segmentation.network import Network
 from segmentation.postprocessing.baseline_extraction import extract_baselines_from_probability_map
 from segmentation.settings import PredictorSettings
 import numpy as np
 from sklearn.cluster import DBSCAN
-from PIL import Image, ImageDraw, ImageFont
-
+from PIL import Image, ImageDraw
 '''
 Todo: Refactor file
 '''
@@ -124,11 +118,7 @@ def analyse(baselines, image, image2, processes=1):
     result = []
     heights = []
     length = []
-    # img = image2.convert('RGB')
     if baselines is None:
-        # array = np.array(img)
-        # pyplot.imshow(array)
-        # pyplot.show()
         return
     for baseline in baselines:
         if len(baseline) != 0:
@@ -253,7 +243,7 @@ def connect_bounding_box(bboxes: [List[BboxCluster]]):
 
             if type1 == type2:
                 if is_above(x, cluster[-1]) and (abs(b1x1 - b2x1) < 150 or abs(b1x2 - b2x2) < 150):
-                    if abs(b2y1 - b1y1) < height:
+                    if abs(b2y1 - b1y1) < height * 1.5:
                         box = None
                         pointer = 1
                         while True:
@@ -359,6 +349,11 @@ def generate_clustered_lines(cluster_results: List[BaselineResult]):
     return clustered
 
 
+def get_top_wrapper(baseline, image=None, threshold=0.2):
+    top_border, height = get_top(image, baseline, threshold=threshold)
+    return baseline, top_border, height
+
+
 def get_top(image, baseline, threshold=0.2):
     x, y = zip(*baseline)
     indexes = (np.array(y), np.array(x))
@@ -372,6 +367,17 @@ def get_top(image, baseline, threshold=0.2):
         height = height + 1
         before = now if now > before else before
     return list(zip(indexes[1], indexes[0])), height
+
+
+def get_top_of_baselines(baselines, image=None, threshold=0.2, processes=1):
+    p_get_top = partial(get_top_wrapper, image=image, threshold=threshold)
+    if processes > 1:
+        with multiprocessing.Pool(processes=processes, maxtasksperchild=100) as p:
+            out = list(p.map(p_get_top, baselines))
+    else:
+        out = list(map(p_get_top, baselines))
+
+    return out
 
 
 def get_top_alternative(image, baseline, threshold=0.1, kernel=3):

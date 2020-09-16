@@ -1,10 +1,18 @@
+import logging
+
 import numpy as np
 import itertools
 from itertools import zip_longest
 import glob
 from itertools import tee, islice, chain
 from timeit import default_timer as timer
-
+logger = logging.getLogger(__name__)
+logFormatter = logging.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s")
+console_logger = logging.StreamHandler()
+console_logger.setFormatter(logFormatter)
+console_logger.terminator = ""
+logger.setLevel(logging.DEBUG)
+logger.addHandler(console_logger)
 
 def angle_to(p1, p2):
     p2 = p2 - p1
@@ -89,4 +97,4 @@ class PerformanceCounter:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         end = timer()
-        print("Time needed for function {}: {} secs".format(self.function_name,end - self.start))
+        logger.info("Time needed for function {}: {} secs \n".format(self.function_name, end - self.start))

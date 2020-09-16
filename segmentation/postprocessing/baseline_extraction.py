@@ -2,11 +2,7 @@ import multiprocessing
 
 import numpy as np
 
-from segmentation.util import angle_to, PerformanceCounter
-import logging
-
-logger = logging.getLogger(__name__)
-
+from segmentation.util import angle_to, PerformanceCounter, logger
 
 class BaseLineCCs(object):
     def __init__(self, cc, type):
@@ -126,7 +122,7 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
     baseline_ccs = [BaseLineCCs(x, 'baseline') for x in baseline_ccs if len(x[0]) > 10]
 
     all_ccs = baseline_ccs  # + baseline_border_ccs
-    logger.info("Extracted {} CCs from probability map".format(len(all_ccs)))
+    logger.info("Extracted {} CCs from probability map \n".format(len(all_ccs)))
 
     def calculate_distance_matrix(ccs, maximum_angle=5, processes=8):
         distance_matrix = np.zeros((len(ccs), len(ccs)))
@@ -142,7 +138,7 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
             distance_matrix[indexes] = values
         return distance_matrix
 
-    with PerformanceCounter(function_name="m_multi_processed") as p:
+    with PerformanceCounter(function_name="calculate_distance_matrix"):
         matrix = calculate_distance_matrix(all_ccs, processes=processes)
 
     from sklearn.cluster import DBSCAN

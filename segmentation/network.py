@@ -5,7 +5,6 @@ from collections.abc import Iterable
 import torch
 import torch.nn as nn
 from torch.utils import data
-import logging
 from segmentation.settings import TrainSettings, PredictorSettings
 import segmentation_models_pytorch as sm
 from segmentation.dataset import label_to_colors, XMLDataset
@@ -14,14 +13,8 @@ import numpy as np
 from pagexml_mask_converter.pagexml_to_mask import MaskGenerator, MaskSetting, BaseMaskGenerator, MaskType, PCGTSVersion
 
 from matplotlib import pyplot as plt
+from segmentation.util import logger
 
-logger = logging.getLogger(__name__)
-logFormatter = logging.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s")
-console_logger = logging.StreamHandler()
-console_logger.setFormatter(logFormatter)
-console_logger.terminator = ""
-logger.setLevel(logging.DEBUG)
-logger.addHandler(console_logger)
 
 
 class TrainProgressCallback:
