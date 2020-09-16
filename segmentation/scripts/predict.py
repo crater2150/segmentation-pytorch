@@ -97,7 +97,7 @@ def main():
         networks.append(network)
     ensemble = Ensemble(networks)
     for file in files:
-        logger.info("Processing: {}".format(file))
+        logger.info("Processing: {} \n".format(file))
         img = Image.open(file)  # open image
         scale_factor_multiplier = 1
         while True:
@@ -120,7 +120,7 @@ def main():
                     if (args.max_line_height is not None and np.median(heights) > args.max_line_height) or \
                             (args.min_line_height is not None and np.median(heights) < args.min_line_height):
                         scale_factor_multiplier = (args.max_line_height - 7) / np.median(heights)
-                        print("Avg:{}, Med:{}".format(np.mean(heights), np.median(heights)))
+                        logger.info("Resizing image Avg:{}, Med:{} \n".format(np.mean(heights), np.median(heights)))
                         continue
                 if args.layout_prediction:
                     with PerformanceCounter(function_name="Baseline Height Calculation "):
