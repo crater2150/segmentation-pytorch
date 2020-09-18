@@ -11,12 +11,16 @@ from segmentation.settings import PredictorSettings
 import numpy as np
 from sklearn.cluster import DBSCAN
 from PIL import Image, ImageDraw
+
 '''
 Todo: Refactor file
 '''
 
 
-def is_above(b1: BboxCluster, b2: BboxCluster, gap_padding_factor=0.5):
+def is_below(b1: BboxCluster, b2: BboxCluster, gap_padding_factor=0.5):
+    """
+    Checks if b2 is above b1
+    """
     b1p1, b1p2 = b1.get_top_line_of_bbox()
     b2p1, p2p2 = b2.get_bottom_line_of_bbox()
     b1x1, b1y1 = b1p1
@@ -35,7 +39,10 @@ def is_above(b1: BboxCluster, b2: BboxCluster, gap_padding_factor=0.5):
     return False
 
 
-def is_below(b1: BboxCluster, b2: BboxCluster, gap_padding_factor=0.5):
+def is_above(b1: BboxCluster, b2: BboxCluster, gap_padding_factor=0.5):
+    """
+    Checks if b2 is below b1
+    """
     b1p1, b1p2 = b1.get_bottom_line_of_bbox()
     b2p1, p2p2 = b2.get_top_line_of_bbox()
     b1x1, b1y1 = b1p1
@@ -54,12 +61,35 @@ def is_below(b1: BboxCluster, b2: BboxCluster, gap_padding_factor=0.5):
     return False
 
 
+def is_between(b1: BboxCluster, b2: BboxCluster, b3: BboxCluster, gap_padding_factor=0.5):
+    """
+    checks if b1 is between b2 and b3
+    """
+    if is_below(b1, b2):
+        if is_above(b1, b3):
+            return True
+    elif is_below(b1, b3):
+        if is_above(b1, b2):
+            return True
+    return False
+
+
+def get_bboxs_between(bbox: BboxCluster, bbox2: BboxCluster, bbox_cluster: List[BboxCluster], height_threshold=100):
+    result = []
+    for x in bbox_cluster:
+        if set(sorted(list(itertools.chain.from_iterable(x.bbox)))) != set(
+                sorted(list(itertools.chain.from_iterable(bbox.bbox)))):
+            if is_between(x, bbox, bbox2):
+                result.append(x)
+    return result
+
+
 def get_bboxs_above(bbox: BboxCluster, bbox_cluster: List[BboxCluster], height_threshold=100):
     result = []
     for x in bbox_cluster:
         if set(sorted(list(itertools.chain.from_iterable(x.bbox)))) != set(
                 sorted(list(itertools.chain.from_iterable(bbox.bbox)))):
-            if is_above(bbox, x):
+            if is_above(x, bbox):
                 b1p1, b1p2 = bbox.get_top_line_of_bbox()
                 b2p1, p2p2 = x.get_bottom_line_of_bbox()
                 b1x1, b1y1 = b1p1
@@ -89,7 +119,7 @@ def get_bboxs_below(bbox: BboxCluster, bbox_cluster: List[BboxCluster], height_t
     for x in bbox_cluster:
         if set(sorted(list(itertools.chain.from_iterable(x.bbox)))) != set(
                 sorted(list(itertools.chain.from_iterable(bbox.bbox)))):
-            if is_below(bbox, x):
+            if is_below(x, bbox):
                 b1p1, b1p2 = bbox.get_bottom_line_of_bbox()
                 b2p1, p2p2 = x.get_top_line_of_bbox()
                 b1x1, b1y1 = b1p1
@@ -242,34 +272,36 @@ def connect_bounding_box(bboxes: [List[BboxCluster]]):
                 break
 
             if type1 == type2:
-                if is_above(x, cluster[-1]) and (abs(b1x1 - b2x1) < 150 or abs(b1x2 - b2x2) < 150):
-                    if abs(b2y1 - b1y1) < height * 1.5:
-                        box = None
-                        pointer = 1
-                        while True:
-                            if ind - pointer >= 0:
-                                if is_above(bboxes_clone[ind - pointer], cluster[-1]):
-                                    box = bboxes_clone[ind - pointer]
+                if is_above(cluster[-1], x) and (abs(b1x1 - b2x1) < 150 or abs(b1x2 - b2x2) < 150):  ##check between
+                    if len(get_bboxs_between(x, cluster[-1], bboxes)) == 0:
+                        print(len(get_bboxs_between(x, cluster[-1], bboxes)))
+                        if abs(b2y1 - b1y1) < height * 1.5:
+                            box = None
+                            pointer = 1
+                            while True:
+                                if ind - pointer >= 0:
+                                    if is_above(bboxes_clone[ind - pointer], cluster[-1]):
+                                        box = bboxes_clone[ind - pointer]
+                                        break
+                                else:
                                     break
-                            else:
-                                break
-                            if pointer > 5:
-                                break
-                            pointer = pointer + 1
-                        if box is not None:
-                            b3p1, b3p2 = box.get_bottom_line_of_bbox()
-                            b4p1, b4p2 = bboxes_clone[ind].get_bottom_line_of_bbox()
+                                if pointer > 5:
+                                    break
+                                pointer = pointer + 1
+                            if box is not None:
+                                b3p1, b3p2 = box.get_bottom_line_of_bbox()
+                                b4p1, b4p2 = bboxes_clone[ind].get_bottom_line_of_bbox()
 
-                            b4x1, b4y1 = b4p2
-                            b3x2, b3y2 = b3p2
-                            type3 = box.baselines[0].cluster_type
-                            if type3 == type2 and abs(b4y1 - b3y2) < height:
-                                clusters.append(cluster)
-                                cluster = []
+                                b4x1, b4y1 = b4p2
+                                b3x2, b3y2 = b3p2
+                                type3 = box.baselines[0].cluster_type
+                                if type3 == type2 and abs(b4y1 - b3y2) < height:
+                                    clusters.append(cluster)
+                                    cluster = []
 
-                        cluster.append(x)
-                        del bboxes_clone[ind]
-                        break
+                            cluster.append(x)
+                            del bboxes_clone[ind]
+                            break
             if ind == 0:
                 clusters.append(cluster)
                 cluster = []

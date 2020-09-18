@@ -14,9 +14,9 @@ def estimate_borders(list_endpoints, max_offset=30):
     return m
 
 
-def ret_baselines_by_id(baselines, basline_id_tuple):
+def ret_baselines_by_id(baselines, baseline_id_tuple):
     bl = []
-    for x in basline_id_tuple:
+    for x in baseline_id_tuple:
         l = []
         for _, id in x:
             l.append(baselines[id])
@@ -72,7 +72,7 @@ def text_border_estimation(baselines):
     left_border_ccs = [x for x in left_border_ccs if len(x) > 2]
     right_border_ccs = [x for x in right_border_ccs if len(x) > 2]
 
-    return (left_border_ccs, right_border_ccs)
+    return left_border_ccs, right_border_ccs
 
     # kt = DBSCAN(eps=100, min_samples=1, metric="euclidean").fit(left_border_list)
     # print(kt)

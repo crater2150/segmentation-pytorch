@@ -9,6 +9,7 @@ from PIL import Image
 import itertools
 import random
 
+
 def get_image_colors(path_to_mask: np.array):
     image_pil = Image.open(path_to_mask)
     if image_pil.mode == 'RGBA':
