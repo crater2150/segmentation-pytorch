@@ -32,14 +32,14 @@ def main():
     args = parser.parse_args()
 
     test = dirs_to_pandaframe(args.test_input, args.test_mask)
-    map = load_image_map_from_file(args.map)
+    i_map = load_image_map_from_file(args.map)
     settings = MaskSetting(MASK_TYPE=MaskType.BASE_LINE, PCGTS_VERSION=PCGTSVersion.PCGTS2013, LINEWIDTH=5,
                            BASELINELENGTH=10)
-    d_test = XMLDataset(test, map,
+    d_test = XMLDataset(test, i_map,
                         mask_generator=MaskGenerator(settings=settings))
     p_setting = PredictorSettings(PREDICT_DATASET=d_test,
                                   MODEL_PATH=args.load)
-    network = Network(p_setting, color_map=map)
+    network = Network(p_setting, color_map=i_map)
 
     accuracy, loss = network.eval()
 

@@ -98,7 +98,6 @@ def main():
             model_paths.append(model_path)
             test_sets.append(test_dataset)
 
-
     else:
         train_dataset = XMLDataset(train, map, transform=compose([base_line_transform()]),
                                    mask_generator=MaskGenerator(settings=settings))
@@ -122,7 +121,7 @@ def main():
         total_accuracy = 0
         total_loss = 0
         for ind, x in enumerate(model_paths):
-            setting = PredictorSettings(PREDICT_DATASET=test_sets[ind], MODEL_PATH= x + ".torch")
+            setting = PredictorSettings(PREDICT_DATASET=test_sets[ind], MODEL_PATH=x + ".torch")
             predictor = Network(setting, color_map=map)
             accuracy, loss = predictor.eval()
             total_accuracy += accuracy

@@ -16,6 +16,7 @@ import itertools
 import numpy as np
 from segmentation.util import logger
 
+
 def dir_path(string):
     if path.isdir(string):
         return string
