@@ -43,10 +43,9 @@ class TrainSettings:
     def to_json(self):
         json_dict = {}
         for x in list(self.__dict__.keys()):
-            if x == "DECODER_CHANNELS":
-                print(x)
+            #if x == "DECODER_CHANNELS":
+            #    print(x)
             if x in ['PSEUDO_DATASET', 'CUSTOM_MODEL', 'TRAIN_DATASET', 'VAL_DATASET']:
-                print(x)
                 continue
             else:
                 if isinstance(self.__dict__[x], Enum):
