@@ -90,7 +90,6 @@ def main():
     args = parser.parse_args()
     files = list(itertools.chain.from_iterable([glob.glob(x) for x in args.image_path]))
     networks = []
-    baselines = None
     bboxs = None
     for x in args.load:
         p_setting = PredictorSettings(MODEL_PATH=x)
@@ -98,6 +97,7 @@ def main():
         networks.append(network)
     ensemble = Ensemble(networks)
     for file in files:
+        baselines = None
         logger.info("Processing: {} \n".format(file))
         img = Image.open(file)  # open image
         scale_factor_multiplier = 1

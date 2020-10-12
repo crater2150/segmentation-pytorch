@@ -274,7 +274,6 @@ def connect_bounding_box(bboxes: [List[BboxCluster]]):
             if type1 == type2:
                 if is_above(cluster[-1], x) and (abs(b1x1 - b2x1) < 150 or abs(b1x2 - b2x2) < 150):  ##check between
                     if len(get_bboxs_between(x, cluster[-1], bboxes)) == 0:
-                        print(len(get_bboxs_between(x, cluster[-1], bboxes)))
                         if abs(b2y1 - b1y1) < height * 1.5:
                             box = None
                             pointer = 1
