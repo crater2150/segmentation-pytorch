@@ -84,7 +84,8 @@ class UpConv_woskip(nn.Module):
 
 
 class UNet(nn.Module):
-    def __init__(self, in_channels=3, out_channels=16, n_class=10, kernel_size=3, padding=1, stride=1, activation=None, depth=3):
+    def __init__(self, in_channels=3, out_channels=16, n_class=10, kernel_size=3, padding=1, stride=1, activation=None,
+                 depth=3):
         super(UNet, self).__init__()
         self.activation = None
         self.init_conv = BaseConv(in_channels, out_channels, kernel_size,
@@ -92,10 +93,10 @@ class UNet(nn.Module):
         self.down = nn.ModuleList([])
         self.up = nn.ModuleList([])
         for i in range(1, depth + 1):
-            self.down.append(DownConv(2**(i - 1) * out_channels, 2**i * out_channels, kernel_size,
-                              padding, stride))
-            self.up.append(UpConv(2**i * out_channels, 2**(i - 1) * out_channels, 2**(i - 1) * out_channels,
-                          kernel_size, padding, stride))
+            self.down.append(DownConv(2 ** (i - 1) * out_channels, 2 ** i * out_channels, kernel_size,
+                                      padding, stride))
+            self.up.append(UpConv(2 ** i * out_channels, 2 ** (i - 1) * out_channels, 2 ** (i - 1) * out_channels,
+                                  kernel_size, padding, stride))
 
         if activation is not None:
             self.out = nn.Conv2d(out_channels, n_class, kernel_size, padding, stride)
@@ -121,82 +122,63 @@ class UNet(nn.Module):
 
 
 class Attention(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, padding, stride):
+    def __init__(self, in_channels, out_channels, kernel_size, padding, stride, depth=3):
         super().__init__()
 
         self.init_conv = BaseConv(in_channels, out_channels, kernel_size,
                                   padding, stride)
-
-        self.down1 = DownConv(out_channels, 2 * out_channels, kernel_size,
-                              padding, stride)
-
-        self.down2 = DownConv(2 * out_channels, 4 * out_channels, kernel_size,
-                              padding, stride)
-
-        self.down3 = DownConv(4 * out_channels, 8 * out_channels, kernel_size, padding, stride)
-        self.up1 = UpConv_woskip(8 * out_channels, out_channels, kernel_size, padding, stride=(8, 8))
+        self.down = nn.ModuleList([])
+        for i in range(1, depth + 1):
+            self.down.append(DownConv(2 ** (i - 1) * out_channels, 2 ** i * out_channels, kernel_size, padding, stride))
+        self.up1 = UpConv_woskip(8 * out_channels, out_channels, kernel_size, padding, stride=(2 ** depth, 2 ** depth))
 
     def forward(self, x):
-        # print('attention')
         x = self.init_conv(x)
-        # print(x.shape)
-        x1 = self.down1(x)
-        # print(x1.shape)
-        x2 = self.down2(x1)
-        # print(x2.shape)
-        x3 = self.down3(x2)
-        # print(x3.shape)
-        up1 = self.up1(x3)
-        # print(up1.shape)
+        for layer in self.down:
+            x = layer(x)
+        up1 = self.up1(x)
 
         return up1
 
 
 class AttentionUnet(nn.Module):
 
-    def __init__(self, in_channels=3, out_channels=16, n_class=10, kernel_size=3, padding=1, stride=1, attention=True):
+    def __init__(self, in_channels=3, out_channels=16, n_class=10, kernel_size=3, padding=1, stride=1, attention=True,
+                 encoder_depth=3, attention_depth=3):
         super().__init__()
         self.attention = attention
-
+        self.unets = nn.ModuleList([])
+        self.attentions = nn.ModuleList([])
+        self.attention_depth = attention_depth
         if attention:
-            self.m1 = UNet(in_channels, out_channels, n_class, kernel_size, padding, stride)
-            self.m2 = UNet(in_channels, out_channels, n_class, kernel_size, padding, stride)
-            self.m3 = UNet(in_channels, out_channels, n_class, kernel_size, padding, stride)
-            self.a1 = Attention(in_channels, out_channels, kernel_size, padding, stride)
-            self.a2 = Attention(in_channels, out_channels, kernel_size, padding, stride)
-            self.a3 = Attention(in_channels, out_channels, kernel_size, padding, stride)
+            for i in range(attention_depth):
+                self.unets.append(UNet(in_channels=in_channels, out_channels=out_channels, n_class=n_class,
+                                       kernel_size=kernel_size, padding=padding, stride=stride, depth=encoder_depth))
+                self.attentions.append(
+                    Attention(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size,
+                              padding=padding, stride=stride, depth=encoder_depth))
 
             self.out = nn.Conv2d(out_channels, n_class, kernel_size, padding, stride)
 
             self.dpool = nn.AvgPool2d((2, 2))
-            #self.dpool2 = nn.AvgPool2d((2, 2))
-            #self.dpool3 = nn.AvgPool2d((2, 2))
-
-            self.upscale = nn.UpsamplingNearest2d(())
+            #self.upscale = nn.UpsamplingNearest2d(())
 
         else:
             self.m1 = UNet(in_channels, out_channels, n_class, kernel_size, padding, stride, activation='softmax')
 
     def forward(self, x):
         if self.attention:
-            x_d1 = self.dpool(x)
-            x_d2 = self.dpool(x_d1)
-            #x_d3 = self.dpool3(x_d2)
-            # Encoder
-            # print(x.shape)
-            x_m = self.m1(x)
-            # print(x_m.shape)
-            x_a = self.a1(x)
-            # print(x_a.shape)
+            resized_images = [x]
+            for t in range(self.attention_depth - 1):
+                resized_images.append(self.dpool(resized_images[-1]))
+            results = []
+            for ind, t in enumerate(resized_images):
+                results.append(self.attentions[ind](t) * self.unets[ind](t))
+            end_res = F.upsample_nearest(results[0], x.shape[2:])
+            for t in results[1:]:
+                end_res += F.upsample_nearest(t, x.shape[2:])
+            x_out = end_res
 
-            x1 = x_m * x_a
-            x2 = self.m2(x_d1) * self.a2(x_d1)
-            x3 = self.m3(x_d2) * self.a3(x_d2)
-
-            x4 = F.upsample_nearest(x1, x.shape[2:]) + \
-                 F.upsample_nearest(x2, x.shape[2:]) + \
-                 F.upsample_nearest(x3, x.shape[2:])
-            x_out = F.log_softmax(self.out(x4), 1)
         else:
             x_out = self.m1(x)
         return x_out
@@ -208,7 +190,7 @@ def test():
     x = torch.randn(1, 3, 512, 512)
     y = torch.randint(0, nb_classes, (1, 512, 512))
 
-    model = CustomModel("unet")()()
+    model = CustomModel("attentionunet")()()
     if torch.cuda.is_available():
         model = model.to('cuda')
         x = x.to('cuda')
@@ -229,4 +211,4 @@ def test():
 
         print('Epoch {}, Loss {}'.format(epoch, loss.item()))
 
-test()
+
