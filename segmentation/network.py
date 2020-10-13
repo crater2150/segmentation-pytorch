@@ -16,7 +16,6 @@ from matplotlib import pyplot as plt
 from segmentation.util import logger
 
 
-
 class TrainProgressCallback:
     def init(self, total_iters, early_stopping_iters):
         pass
@@ -261,6 +260,7 @@ class Network(object):
         classes: int = None
         encoder_depth: int = None
         decoder_channel: Tuple[int, ...] = None
+        custom_model = None
         if isinstance(settings, PredictorSettings):
 
             import os
@@ -279,28 +279,38 @@ class Network(object):
                     import json
                     json_file = json.load(f)
             if self.settings.PREDICT_DATASET is not None:
-                self.settings.PREDICT_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(encoder if encoder else
-                                                                                               json_file["ENCODER"])
+                if custom_model is None:
+                    self.settings.PREDICT_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(encoder if encoder else
+                                                                                                json_file["ENCODER"])
         elif isinstance(settings, TrainSettings):
-            encoder = self.settings.ENCODER
-            architecture = self.settings.ARCHITECTURE
+            custom_model = self.settings.CUSTOM_MODEL
+            encoder = self.settings.ENCODER if self.settings.CUSTOM_MODEL is None else None
+            architecture = self.settings.ARCHITECTURE if self.settings.CUSTOM_MODEL is None else None
             classes = self.settings.CLASSES
-            encoder_depth = self.settings.ENCODER_DEPTH
-            decoder_channel = self.settings.DECODER_CHANNELS
-            self.settings.TRAIN_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(self.settings.ENCODER)
-            self.settings.VAL_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(self.settings.ENCODER)
+            encoder_depth = self.settings.ENCODER_DEPTH if self.settings.CUSTOM_MODEL is None else None
+            decoder_channel = self.settings.DECODER_CHANNELS if self.settings.CUSTOM_MODEL is None else None
+            if self.settings.CUSTOM_MODEL is None:
+                self.settings.TRAIN_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(self.settings.ENCODER)
+                self.settings.VAL_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(self.settings.ENCODER)
         device = "cuda" if torch.cuda.is_available() else "cpu"
         logger.info('Device: {} is used for training/prediction\n'.format(device))
-        architecture = architecture if architecture else Architecture(json_file["ARCHITECTURE"])
-
+        custom_model = custom_model if custom_model else json_file["CUSTOM_MODEL"]
         self.device = torch.device(device)
-        self.model_params = architecture.get_architecture_params()
-        self.model_params['classes'] = classes if classes else json_file["CLASSES"]
-        self.model_params['decoder_use_batchnorm'] = False
-        self.model_params['encoder_name'] = encoder if encoder else json_file["ENCODER"]
-        self.model_params['encoder_depth'] = json_file["ENCODER_DEPTH"] if json_file else encoder_depth
-        #   PÜelf.model_params['decoder_channels'] = json_file["DECODER_CHANNELS"] if json_file else decoder_channel
-        self.model = get_model(architecture, self.model_params)
+        self.model_params = None
+        if not custom_model:
+            architecture = architecture if architecture else Architecture(json_file["ARCHITECTURE"])
+
+            self.model_params = architecture.get_architecture_params()
+            self.model_params['classes'] = classes if classes else json_file["CLASSES"]
+            self.model_params['decoder_use_batchnorm'] = False
+            self.model_params['encoder_name'] = encoder if encoder else json_file["ENCODER"]
+            self.model_params['encoder_depth'] = json_file["ENCODER_DEPTH"] if json_file else encoder_depth
+            #   PÜelf.model_params['decoder_channels'] = json_file["DECODER_CHANNELS"] if json_file else decoder_channel
+            self.model = get_model(architecture, self.model_params)
+        else:
+            from segmentation.model import CustomModel
+            self.model = CustomModel(custom_model)()()
+
         if self.settings.MODEL_PATH:
             try:
                 self.model.load_state_dict(torch.load(self.settings.MODEL_PATH, map_location=torch.device(device)))
@@ -699,7 +709,7 @@ if __name__ == '__main__':
 
     settings = MaskSetting(MASK_TYPE=MaskType.BASE_LINE, PCGTS_VERSION=PCGTSVersion.PCGTS2013, LINEWIDTH=5,
                            BASELINELENGTH=10)
-    dt = XMLDataset(a[:10], map, transform=compose([base_line_transform()]),
+    dt = XMLDataset(a, map, transform=compose([base_line_transform()]),
                     mask_generator=MaskGenerator(settings=settings))
     d_test = XMLDataset(b[:5], map, transform=compose([base_line_transform()]),
                         mask_generator=MaskGenerator(settings=settings))
@@ -712,11 +722,11 @@ if __name__ == '__main__':
 
     setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=dt, VAL_DATASET=d_test,
                             OUTPUT_PATH="/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/ICDAR2019_b2_ed7",
-                            MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/ICDAR2019_b2_ed6.torch',
-                            ENCODER_DEPTH=5)  # ENCODER_DEPTH=6, DECODER_CHANNELS=(256, 128, 64, 32, 16, 8))
+                            MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/ICDAR2019_b2_ed7.torch',
+                            ENCODER_DEPTH=5, CUSTOM_MODEL='unet')  # ENCODER_DEPTH=6, DECODER_CHANNELS=(256, 128, 64, 32, 16, 8))
 
     p_setting = PredictorSettings(PREDICT_DATASET=d_predict,
-                                  MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/ICDAR2019_b2_ed6.torch')
+                                  MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/ICDAR2019_b2_ed7.torch')
     trainer = Network(p_setting, color_map=map)
     #trainer.train()
     from PIL import Image
