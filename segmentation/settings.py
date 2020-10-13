@@ -8,7 +8,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 import json
 
-
 @dataclass
 class TrainSettings:
     TRAIN_DATASET: MaskDataset
@@ -18,19 +17,21 @@ class TrainSettings:
     OUTPUT_PATH: str
 
     PSEUDO_DATASET: MaskDataset = None
-    CUSTOM_MODEL: CustomModel = None
     EPOCHS: int = 15
     OPTIMIZER: Optimizers = Optimizers.ADAM
     LEARNINGRATE_ENCODER: float = 1.e-5
     LEARNINGRATE_DECODER: float = 1.e-4
     LEARNINGRATE_SEGHEAD: float = 1.e-4
-    ENCODER_DEPTH: int = 5
-    BATCH_ACCUMULATION: int = 8
+
+    CUSTOM_MODEL: str = None
     DECODER_CHANNELS: Tuple[int, ...] = field(default_factory=tuple)
+    ENCODER_DEPTH: int = 5
+    ENCODER: str = 'efficientnet-b3'
+
+    BATCH_ACCUMULATION: int = 8
     TRAIN_BATCH_SIZE: int = 1
     VAL_BATCH_SIZE: int = 1
     ARCHITECTURE: Architecture = Architecture.UNET
-    ENCODER: str = 'efficientnet-b3'
     MODEL_PATH: str = None
     IMAGEMAX_AREA: int = 1000000
 
@@ -43,9 +44,9 @@ class TrainSettings:
     def to_json(self):
         json_dict = {}
         for x in list(self.__dict__.keys()):
-            #if x == "DECODER_CHANNELS":
+            # if x == "DECODER_CHANNELS":
             #    print(x)
-            if x in ['PSEUDO_DATASET', 'CUSTOM_MODEL', 'TRAIN_DATASET', 'VAL_DATASET']:
+            if x in ['PSEUDO_DATASET', 'TRAIN_DATASET', 'VAL_DATASET']:
                 continue
             else:
                 if isinstance(self.__dict__[x], Enum):
@@ -54,7 +55,6 @@ class TrainSettings:
                 json_dict[x] = self.__dict__[x]
         t = json.dumps(json_dict, indent=4)
         return t
-
 
     @staticmethod
     def load_from_json(self, json):

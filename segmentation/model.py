@@ -84,8 +84,7 @@ class UpConv_woskip(nn.Module):
 
 
 class UNet(nn.Module):
-    def __init__(self, in_channels, out_channels, n_class, kernel_size,
-                 padding, stride, activation=None):
+    def __init__(self, in_channels=3, out_channels=16, n_class=10, kernel_size=3, padding=1, stride=1, activation=None):
         super(UNet, self).__init__()
         self.activation = None
         self.init_conv = BaseConv(in_channels, out_channels, kernel_size,
@@ -161,7 +160,8 @@ class Attention(nn.Module):
 
 
 class AttentionUnet(nn.Module):
-    def __init__(self, in_channels, out_channels, n_class, kernel_size, padding, stride, attention=True):
+
+    def __init__(self, in_channels=3, out_channels=16, n_class=10, kernel_size=3, padding=1, stride=1, attention=True):
         super().__init__()
         self.attention = attention
 
@@ -175,9 +175,9 @@ class AttentionUnet(nn.Module):
 
             self.out = nn.Conv2d(out_channels, n_class, kernel_size, padding, stride)
 
-            self.dpool1 = nn.AvgPool2d((2, 2))
-            self.dpool2 = nn.AvgPool2d((2, 2))
-            self.dpool3 = nn.AvgPool2d((2, 2))
+            self.dpool = nn.AvgPool2d((2, 2))
+            #self.dpool2 = nn.AvgPool2d((2, 2))
+            #self.dpool3 = nn.AvgPool2d((2, 2))
 
             self.upscale = nn.UpsamplingNearest2d(())
 
@@ -186,9 +186,9 @@ class AttentionUnet(nn.Module):
 
     def forward(self, x):
         if self.attention:
-            x_d1 = self.dpool1(x)
-            x_d2 = self.dpool2(x_d1)
-            x_d3 = self.dpool3(x_d2)
+            x_d1 = self.dpool(x)
+            x_d2 = self.dpool(x_d1)
+            #x_d3 = self.dpool3(x_d2)
             # Encoder
             # print(x.shape)
             x_m = self.m1(x)
@@ -200,9 +200,9 @@ class AttentionUnet(nn.Module):
             x2 = self.m2(x_d1) * self.a2(x_d1)
             x3 = self.m3(x_d2) * self.a3(x_d2)
 
-            x4 = F.upsample_nearest(x1, x.shape[2:]) + F.upsample_nearest(x2, x.shape[2:]) + F.upsample_nearest(x3,
-                                                                                                                x.shape[
-                                                                                                                2:])
+            x4 = F.upsample_nearest(x1, x.shape[2:]) + \
+                 F.upsample_nearest(x2, x.shape[2:]) + \
+                 F.upsample_nearest(x3, x.shape[2:])
             x_out = F.log_softmax(self.out(x4), 1)
         else:
             x_out = self.m1(x)
@@ -215,13 +215,13 @@ def test():
     x = torch.randn(1, 3, 512, 512)
     y = torch.randint(0, nb_classes, (1, 512, 512))
 
-    model = UNet(in_channels=3,
+    model = AttentionUnet(in_channels=3,
                  out_channels=16,
                  n_class=10,
                  kernel_size=3,
                  padding=1,
                  stride=1)
-
+    model = CustomModel("attentionunet")()()
     if torch.cuda.is_available():
         model = model.to('cuda')
         x = x.to('cuda')
@@ -240,6 +240,3 @@ def test():
         optimizer.step()
 
         print('Epoch {}, Loss {}'.format(epoch, loss.item()))
-
-
-
