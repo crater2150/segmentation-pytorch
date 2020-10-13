@@ -9,6 +9,17 @@ from enum import Enum
 import json
 
 @dataclass
+class CustomModelSettings(NamedTuple):
+    TYPE: str = "unet"
+    DEPTH: int = 3
+    ENCODER_FILTER = []
+    DECODER_FILTER = []
+    KERNEL_SIZE: int = 3
+    PADDING: int = 1
+    STRIDE: int = 1
+    ACTIVATION: bool = False
+
+@dataclass
 class TrainSettings:
     TRAIN_DATASET: MaskDataset
     VAL_DATASET: MaskDataset
@@ -23,7 +34,7 @@ class TrainSettings:
     LEARNINGRATE_DECODER: float = 1.e-4
     LEARNINGRATE_SEGHEAD: float = 1.e-4
 
-    CUSTOM_MODEL: str = None
+    CUSTOM_MODEL: CustomModelSettings = None
     DECODER_CHANNELS: Tuple[int, ...] = field(default_factory=tuple)
     ENCODER_DEPTH: int = 5
     ENCODER: str = 'efficientnet-b3'
@@ -59,6 +70,9 @@ class TrainSettings:
     @staticmethod
     def load_from_json(self, json):
         pass
+
+
+
 
 
 class PredictorSettings(NamedTuple):

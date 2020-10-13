@@ -84,46 +84,39 @@ class UpConv_woskip(nn.Module):
 
 
 class UNet(nn.Module):
-    def __init__(self, in_channels=3, out_channels=16, n_class=10, kernel_size=3, padding=1, stride=1, activation=None):
+    def __init__(self, in_channels=3, out_channels=16, n_class=10, kernel_size=3, padding=1, stride=1, activation=None, depth=3):
         super(UNet, self).__init__()
         self.activation = None
         self.init_conv = BaseConv(in_channels, out_channels, kernel_size,
                                   padding, stride)
+        self.down = nn.ModuleList([])
+        self.up = nn.ModuleList([])
+        for i in range(1, depth + 1):
+            self.down.append(DownConv(2**(i - 1) * out_channels, 2**i * out_channels, kernel_size,
+                              padding, stride))
+            self.up.append(UpConv(2**i * out_channels, 2**(i - 1) * out_channels, 2**(i - 1) * out_channels,
+                          kernel_size, padding, stride))
 
-        self.down1 = DownConv(out_channels, 2 * out_channels, kernel_size,
-                              padding, stride)
-
-        self.down2 = DownConv(2 * out_channels, 4 * out_channels, kernel_size,
-                              padding, stride)
-
-        self.down3 = DownConv(4 * out_channels, 8 * out_channels, kernel_size,
-                              padding, stride)
-
-        self.up3 = UpConv(8 * out_channels, 4 * out_channels, 4 * out_channels,
-                          kernel_size, padding, stride)
-
-        self.up2 = UpConv(4 * out_channels, 2 * out_channels, 2 * out_channels,
-                          kernel_size, padding, stride)
-
-        self.up1 = UpConv(2 * out_channels, out_channels, out_channels,
-                          kernel_size, padding, stride)
         if activation is not None:
             self.out = nn.Conv2d(out_channels, n_class, kernel_size, padding, stride)
 
     def forward(self, x):
         # Encoder
         x = self.init_conv(x)
-        x1 = self.down1(x)
-        x2 = self.down2(x1)
-        x3 = self.down3(x2)
-        # Decoder
-        x_up = self.up3(x3, x2)
-        x_up = self.up2(x_up, x1)
-        x_up = self.up1(x_up, x)
+
+        res_d = [x]
+        for layer in self.down:
+            res_d.append(layer(res_d[-1]))
+
+        res_u = [res_d[-1]]
+        s = 2
+        for layer in reversed(self.up):
+            res_u.append(layer(res_u[-1], res_d[-s]))
+            s += 1
         if self.activation is not None:
-            x_out = F.log_softmax(self.out(x_up), 1)
+            x_out = F.log_softmax(self.out(res_u[-1]), 1)
         else:
-            x_out = x_up
+            x_out = res_u[-1]
         return x_out
 
 
@@ -215,13 +208,7 @@ def test():
     x = torch.randn(1, 3, 512, 512)
     y = torch.randint(0, nb_classes, (1, 512, 512))
 
-    model = AttentionUnet(in_channels=3,
-                 out_channels=16,
-                 n_class=10,
-                 kernel_size=3,
-                 padding=1,
-                 stride=1)
-    model = CustomModel("attentionunet")()()
+    model = CustomModel("unet")()()
     if torch.cuda.is_available():
         model = model.to('cuda')
         x = x.to('cuda')
@@ -233,10 +220,13 @@ def test():
     # Training loop
     for epoch in range(1000):
         optimizer.zero_grad()
-
+        model = model.to('cuda')
         output = model(x)
+        output.to('cuda')
         loss = criterion(output, y)
         loss.backward()
         optimizer.step()
 
         print('Epoch {}, Loss {}'.format(epoch, loss.item()))
+
+test()
