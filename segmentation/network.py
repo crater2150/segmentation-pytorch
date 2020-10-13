@@ -66,7 +66,7 @@ def unpad(tensor, o_shape):
     return output
 
 
-def test(model, device, test_loader, criterion):
+def test(model, device, test_loader, criterion, padding_value=32):
     model.eval()
     test_loss = 0
     correct = 0
@@ -75,7 +75,7 @@ def test(model, device, test_loader, criterion):
         for idx, (data, target, id) in enumerate(test_loader):
             data, target = data.to(device), target.to(device, dtype=torch.int64)
             shape = list(data.shape)[2:]
-            padded = pad(data, 32)
+            padded = pad(data, padding_value)
 
             input = padded.float()
 
@@ -98,7 +98,7 @@ def test(model, device, test_loader, criterion):
 
 
 def train(model, device, train_loader, optimizer, epoch, criterion, accumulation_steps=8, color_map=None,
-          callback: TrainProgressCallbackWrapper = None, debug=False):
+          callback: TrainProgressCallbackWrapper = None, padding_value=32, debug=False):
     def debug_img(mask, target, original, color_map):
         if color_map is not None:
             from matplotlib import pyplot as plt
@@ -129,7 +129,7 @@ def train(model, device, train_loader, optimizer, epoch, criterion, accumulation
         data, target = data.to(device), target.to(device, dtype=torch.int64)
 
         shape = list(data.shape)[2:]
-        padded = pad(data, 32)
+        padded = pad(data, padding_value)
 
         input = padded.float()
 
@@ -164,7 +164,7 @@ def train(model, device, train_loader, optimizer, epoch, criterion, accumulation
 
 def train_unlabeled(model, device, train_loader, unlabeled_loader,
                     optimizer, epoch, criterion, accumulation_steps=8,
-                    color_map=None, train_step=50, alpha_factor=3, epoch_conv=15, debug=False):
+                    color_map=None, train_step=50, alpha_factor=3, epoch_conv=15, debug=False, padding_value=32):
     def alpha_weight(epoch):
         return min((epoch / epoch_conv) * alpha_factor, alpha_factor)
 
@@ -195,7 +195,7 @@ def train_unlabeled(model, device, train_loader, unlabeled_loader,
     for batch_idx, (data, target, id) in enumerate(unlabeled_loader):
         data = data.to(device)
         shape = list(data.shape)[2:]
-        padded = pad(data, 32)
+        padded = pad(data, padding_value)
 
         input = padded.float()
         model.eval()
@@ -260,6 +260,7 @@ class Network(object):
         classes: int = None
         encoder_depth: int = None
         decoder_channel: Tuple[int, ...] = None
+        padding_value = None
         custom_model = None
         if isinstance(settings, PredictorSettings):
 
@@ -279,19 +280,18 @@ class Network(object):
                     import json
                     json_file = json.load(f)
             if self.settings.PREDICT_DATASET is not None:
-                if custom_model is None:
-                    self.settings.PREDICT_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(encoder if encoder else
-                                                                                                json_file["ENCODER"])
+                self.settings.PREDICT_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(encoder if encoder else
+                                                                                               json_file["ENCODER"])
         elif isinstance(settings, TrainSettings):
             custom_model = self.settings.CUSTOM_MODEL
-            encoder = self.settings.ENCODER if self.settings.CUSTOM_MODEL is None else None
-            architecture = self.settings.ARCHITECTURE if self.settings.CUSTOM_MODEL is None else None
+            encoder = self.settings.ENCODER
+            architecture = self.settings.ARCHITECTURE
             classes = self.settings.CLASSES
-            encoder_depth = self.settings.ENCODER_DEPTH if self.settings.CUSTOM_MODEL is None else None
-            decoder_channel = self.settings.DECODER_CHANNELS if self.settings.CUSTOM_MODEL is None else None
-            if self.settings.CUSTOM_MODEL is None:
-                self.settings.TRAIN_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(self.settings.ENCODER)
-                self.settings.VAL_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(self.settings.ENCODER)
+            encoder_depth = self.settings.ENCODER_DEPTH
+            decoder_channel = self.settings.DECODER_CHANNELS
+            padding_value = self.settings.PADDING_VALUE
+            self.settings.TRAIN_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(self.settings.ENCODER)
+            self.settings.VAL_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(self.settings.ENCODER)
         device = "cuda" if torch.cuda.is_available() else "cpu"
         logger.info('Device: {} is used for training/prediction\n'.format(device))
         custom_model = custom_model if custom_model else json_file["CUSTOM_MODEL"]
@@ -309,7 +309,11 @@ class Network(object):
             self.model = get_model(architecture, self.model_params)
         else:
             from segmentation.model import CustomModel
-            self.model = CustomModel(custom_model)()()
+            import json
+            if isinstance(custom_model, dict):
+                custom_model = CustomModelSettings(**custom_model)
+            kwargs = custom_model.get_kwargs()
+            self.model = CustomModel(custom_model.TYPE)()(**kwargs)
 
         if self.settings.MODEL_PATH:
             try:
@@ -319,7 +323,8 @@ class Network(object):
 
         self.color_map = color_map  # Optional for visualisation of mask data
         self.model.to(self.device)
-        self.encoder = encoder
+        self.encoder = encoder if encoder else json_file["ENCODER"]
+        self.padding_value = padding_value if padding_value else json_file["PADDING_VALUE"]
 
     def train(self, callback=None):
 
@@ -351,7 +356,7 @@ class Network(object):
             pseudo_loader = data.DataLoader(dataset=self.settings.PSEUDO_DATASET,
                                             batch_size=self.settings.TRAIN_BATCH_SIZE,
                                             shuffle=True)
-        highest_accuracy = 0
+        highest_accuracy = -1
         logger.info(str(self.model) + "\n")
         logger.info(str(self.model_params) + "\n")
         logger.info('Training started ...\n"')
@@ -361,13 +366,14 @@ class Network(object):
                                 unlabeled_loader=pseudo_loader,
                                 optimizer=optimizer, epoch=epoch, criterion=criterion,
                                 accumulation_steps=self.settings.BATCH_ACCUMULATION,
-                                color_map=self.color_map, train_step=50, alpha_factor=3, epoch_conv=15)
+                                color_map=self.color_map, train_step=50, alpha_factor=3, epoch_conv=15,
+                                padding_value=self.padding_value)
             else:
                 train(self.model, self.device, train_loader, optimizer, epoch, criterion,
                       accumulation_steps=self.settings.BATCH_ACCUMULATION,
                       color_map=self.color_map,
-                      callback=callback)
-            accuracy, loss = test(self.model, self.device, val_loader, criterion=criterion)
+                      callback=callback, padding_value=self.padding_value)
+            accuracy, loss = test(self.model, self.device, val_loader, criterion=criterion, padding_value=self.padding_value)
             if self.settings.OUTPUT_PATH is not None:
 
                 if accuracy > highest_accuracy:
@@ -389,7 +395,7 @@ class Network(object):
         criterion = nn.CrossEntropyLoss()
         val_loader = data.DataLoader(dataset=self.settings.PREDICT_DATASET, batch_size=1,
                                      shuffle=False)
-        accuracy, loss = test(self.model, self.device, val_loader, criterion=criterion)
+        accuracy, loss = test(self.model, self.device, val_loader, criterion=criterion, padding_value=self.padding_value)
 
         return accuracy, loss
 
@@ -423,7 +429,7 @@ class Network(object):
                 for transformer in transforms:
                     augmented_image = transformer.augment_image(data)
                     shape = list(augmented_image.shape)[2:]
-                    padded = pad(augmented_image, 32)  ## 2**5
+                    padded = pad(augmented_image, self.padding_value)  ## 2**5
 
                     input = padded.float()
                     output = self.model(input)
@@ -437,85 +443,9 @@ class Network(object):
                 stacked = torch.stack(outputs)
                 output = torch.mean(stacked, dim=0)
                 outputs.append(output)
-                '''
-                def debug(mask, target, original, color_map):
-                    if color_map is not None:
-                        mean = [0.485, 0.456, 0.406]
-                        stds = [0.229, 0.224, 0.225]
-                        mask = torch.argmax(mask.cpu(), dim=1)
-                        mask = torch.squeeze(mask)
-                        original = original.permute(0, 2, 3, 1)
-                        original = torch.squeeze(original).cpu().numpy()
-                        original = original * stds
-                        original = original + mean
-                        original = original * 255
-                        original = original.astype(int)
-                        from segmentation.postprocessing.baseline_extraction import extract_baselines
-                        from segmentation.postprocessing.text_border_estimation import text_border_estimation
-                        from itertools import chain
-
-                        ccs = extract_baselines(mask, original=original)
-                        left_border_ccs, right_border_ccs = text_border_estimation(ccs)
-
-                        from PIL import Image, ImageDraw
-
-                        im = Image.fromarray(np.uint8(original))
-                        draw = ImageDraw.Draw(im)
-
-                        colors = [(255, 0, 0),
-                                  (0, 255, 0),
-                                  (0, 0, 255),
-                                  (255, 255, 0),
-                                  (0, 255, 255),
-                                  (255, 0, 255)]
-                        if len(ccs) != 0:
-                            for x in left_border_ccs:
-                                top = x[0][0]
-                                bot = x[-1][0]
-                                min_x = min(top[1], bot[1])
-                                draw.line([(min_x, top[0]), (min_x, bot[0])], fill=(255, 0, 0), width=2)
-
-                            for x in right_border_ccs:
-                                top = x[0][-1]
-                                bot = x[-1][-1]
-                                max_x = max(top[1], bot[1])
-
-                                draw.line([(max_x, top[0]), (max_x, bot[0])], fill=(255, 0, 0), width=2)
-                            for ind, x in enumerate(ccs):
-                                t = list(chain.from_iterable(x))
-                                a = t[::]
-                                draw.line(a, fill=colors[ind % len(colors)], width=2)
-                                pass
-                            im.show()
-                            # dd
-                            f, ax = plt.subplots(1, 3, True, True)
-                            target = torch.squeeze(target.cpu())
-                            # ax[0].imshow(label_to_colors(mask=target, colormap=color_map))
-                            ax[0].imshow(label_to_colors(mask=mask, colormap=color_map))
-                            ax[1].imshow(original)
-                            ax[2].imshow(label_to_colors(mask=mask, colormap=color_map), cmap='jet', alpha=0.5)
-
-                            plt.show()
-
-                if debug:
-                    debug(output, target, data, self.color_map)
-                '''
                 out = output.data.cpu().numpy()
                 out = np.transpose(out, (0, 2, 3, 1))
                 out = np.squeeze(out)
-                '''
-                def plot(outputs):
-                    list_out = []
-                    for ind, x in enumerate(outputs):
-                        mask = torch.argmax(x.cpu(), dim=1)
-                        mask = torch.squeeze(mask)
-                        list_out.append(label_to_colors(mask=mask, colormap=self.color_map))
-                    # list_out.append(label_to_colors(mask=torch.squeeze(target.cpu()), colormap=self.color_map))
-                    plot_list(list_out)
-
-                if debug:
-                    plot(outputs)
-                '''
                 yield out
 
     def predict_single_image(self, image: np.array, rgb=True, preprocessing=True, tta_aug=None):
@@ -550,7 +480,7 @@ class Network(object):
             for transformer in transforms:
                 augmented_image = transformer.augment_image(data)
                 shape = list(augmented_image.shape)[2:]
-                padded = pad(augmented_image, 32)  ## 2**5
+                padded = pad(augmented_image, self.padding_value)  ## 2**5
 
                 input = padded.float()
                 output = self.model(input)
@@ -709,7 +639,7 @@ if __name__ == '__main__':
 
     settings = MaskSetting(MASK_TYPE=MaskType.BASE_LINE, PCGTS_VERSION=PCGTSVersion.PCGTS2013, LINEWIDTH=5,
                            BASELINELENGTH=10)
-    dt = XMLDataset(a, map, transform=compose([base_line_transform()]),
+    dt = XMLDataset(a[:25], map, transform=compose([base_line_transform()]),
                     mask_generator=MaskGenerator(settings=settings))
     d_test = XMLDataset(b[:5], map, transform=compose([base_line_transform()]),
                         mask_generator=MaskGenerator(settings=settings))
@@ -719,17 +649,25 @@ if __name__ == '__main__':
     d_predict = MaskDataset(e, map)
     # transform=compose([base_line_transform()]))  # transform=compose([base_line_transform()]))
     from segmentation.settings import TrainSettings
+    from segmentation.settings import CustomModelSettings
 
     setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=dt, VAL_DATASET=d_test,
-                            OUTPUT_PATH="/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/ICDAR2019_b2_ed7",
+                            OUTPUT_PATH="/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/attention_net23",
                             MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/ICDAR2019_b2_ed7.torch',
-                            ENCODER_DEPTH=5, CUSTOM_MODEL='unet')  # ENCODER_DEPTH=6, DECODER_CHANNELS=(256, 128, 64, 32, 16, 8))
+                            PADDING_VALUE=64,
+                            CUSTOM_MODEL=CustomModelSettings(CLASSES=len(map),
+                                                             ENCODER_DEPTH=4,
+                                                             ENCODER_FILTER=[16, 32, 64, 128, 256],
+                                                             DECODER_FILTER=[16, 32, 64, 128, 256],
+                                                             ATTENTION_ENCODER_FILTER=[16, 32, 64, 128],
+                                                             )
+                            )
 
     p_setting = PredictorSettings(PREDICT_DATASET=d_predict,
-                                  MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/ICDAR2019_b2_ed7.torch')
+                                  MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/attention_net23.torch')
     trainer = Network(p_setting, color_map=map)
     #trainer.train()
-    from PIL import Image
+    #from PIL import Image
 
     # a = np.array(Image.open(a.get('images')[0]))
     # data = trainer.predict_single_image(a)
