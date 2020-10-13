@@ -65,6 +65,12 @@ def main():
     parser.add_argument('--eval', action="store_true", help="Starts evaluation on test set after training")
     parser.add_argument("--scale_area", type=int, default=1000000,
                         help="max pixel amount of an image")
+    parser.add_argument('--custom_model',
+                        default=None,
+                        const=None,
+                        nargs='?',
+                        choices=["unet", "attentionunet"],
+                        help='Network architecture to use for training')
     parser.add_argument('--seed', default=123, type=int)
     args = parser.parse_args()
     train = dirs_to_pandaframe(args.train_input, args.train_mask)
@@ -92,7 +98,8 @@ def main():
                                     MODEL_PATH=args.load, EPOCHS=args.n_epoch,
                                     OPTIMIZER=Optimizers(args.optimizer), BATCH_ACCUMULATION=args.batch_accumulation,
                                     ENCODER=args.encoder,
-                                    ARCHITECTURE=Architecture(args.architecture), PROCESSES=args.processes)
+                                    ARCHITECTURE=Architecture(args.architecture), PROCESSES=args.processes,
+                                    CUSTOM_MODEL=args.custom_model)
             trainer = Network(setting, color_map=map)
             trainer.train()
             model_paths.append(model_path)
@@ -110,7 +117,8 @@ def main():
                                 MODEL_PATH=args.load, EPOCHS=args.n_epoch,
                                 OPTIMIZER=Optimizers(args.optimizer), BATCH_ACCUMULATION=args.batch_accumulation,
                                 ENCODER=args.encoder,
-                                ARCHITECTURE=Architecture(args.architecture), PROCESSES=args.processes)
+                                ARCHITECTURE=Architecture(args.architecture), PROCESSES=args.processes,
+                                CUSTOM_MODEL=args.custom_model)
 
         trainer = Network(setting, color_map=map)
         trainer.train()
