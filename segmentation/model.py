@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from enum import Enum
+from segmentation.util import logger
 
 
 class CustomModel(Enum):
@@ -70,6 +71,23 @@ class UpConv(nn.Module):
         return x
 
 
+def pad(tensor, factor=32):
+    shape = list(tensor.shape)[2:]
+    h_dif = factor - (shape[0] % factor)
+    x_dif = factor - (shape[1] % factor)
+    x_dif = x_dif if factor != x_dif else 0
+    h_dif = h_dif if factor != h_dif else 0
+    augmented_image = tensor
+    if h_dif != 0 or x_dif != 0:
+        augmented_image = torch.nn.functional.pad(input=tensor, pad=[0, x_dif, 0, h_dif])
+    return augmented_image
+
+
+def unpad(tensor, o_shape):
+    output = tensor[:, :, :o_shape[0], :o_shape[1]]
+    return output
+
+
 class UpConv_woskip(nn.Module):
     def __init__(self, in_channels, out_channels,
                  kernel_size, padding, stride):
@@ -85,18 +103,28 @@ class UpConv_woskip(nn.Module):
 
 class UNet(nn.Module):
     def __init__(self, in_channels=3, out_channels=16, n_class=10, kernel_size=3, padding=1, stride=1, activation=None,
-                 depth=3):
+                 depth=3, encoder_filter=None, decoder_filter=None):
         super(UNet, self).__init__()
+        if encoder_filter is None:
+            encoder_filter = [16, 32, 64, 128]
+        if decoder_filter is None:
+            decoder_filter = [16, 32, 64, 128]
+        assert ((depth + 1) == len(encoder_filter)), "Length of encoder filter must match encoder depth + 1"
+        assert ((depth + 1) == len(decoder_filter)), "Length of decoder filter must match encoder depth + 1"
         self.activation = None
         self.init_conv = BaseConv(in_channels, out_channels, kernel_size,
                                   padding, stride)
         self.down = nn.ModuleList([])
         self.up = nn.ModuleList([])
         for i in range(1, depth + 1):
-            self.down.append(DownConv(2 ** (i - 1) * out_channels, 2 ** i * out_channels, kernel_size,
-                                      padding, stride))
-            self.up.append(UpConv(2 ** i * out_channels, 2 ** (i - 1) * out_channels, 2 ** (i - 1) * out_channels,
+            self.down.append(DownConv(encoder_filter[i - 1], encoder_filter[i], kernel_size, padding, stride))
+            self.up.append(UpConv(encoder_filter[i], encoder_filter[i - 1], encoder_filter[i - 1],
                                   kernel_size, padding, stride))
+        # for i in range(1, depth + 1):
+        #    self.down.append(DownConv(2 ** (i - 1) * out_channels, 2 ** i * out_channels, kernel_size,
+        #                              padding, stride))
+        #    self.up.append(UpConv(2 ** i * out_channels, 2 ** (i - 1) * out_channels, 2 ** (i - 1) * out_channels,
+        #                          kernel_size, padding, stride))
 
         if activation is not None:
             self.out = nn.Conv2d(out_channels, n_class, kernel_size, padding, stride)
@@ -122,14 +150,19 @@ class UNet(nn.Module):
 
 
 class Attention(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, padding, stride, depth=3):
+    def __init__(self, in_channels, out_channels, kernel_size, padding, stride, depth=3, encoder_filter=None):
         super().__init__()
-
+        if encoder_filter is None:
+            encoder_filter = [16, 32, 64, 128]
+        assert ((depth + 1) == len(encoder_filter)), "Length of encoder filter must match encoder depth + 1"
         self.init_conv = BaseConv(in_channels, out_channels, kernel_size,
                                   padding, stride)
         self.down = nn.ModuleList([])
         for i in range(1, depth + 1):
-            self.down.append(DownConv(2 ** (i - 1) * out_channels, 2 ** i * out_channels, kernel_size, padding, stride))
+            self.down.append(DownConv(encoder_filter[i - 1], encoder_filter[i], kernel_size, padding, stride))
+
+        # for i in range(1, depth + 1):
+        #    self.down.append(DownConv(2 ** (i - 1) * out_channels, 2 ** i * out_channels, kernel_size, padding, stride))
         self.up1 = UpConv_woskip(8 * out_channels, out_channels, kernel_size, padding, stride=(2 ** depth, 2 ** depth))
 
     def forward(self, x):
@@ -144,7 +177,9 @@ class Attention(nn.Module):
 class AttentionUnet(nn.Module):
 
     def __init__(self, in_channels=3, out_channels=16, n_class=10, kernel_size=3, padding=1, stride=1, attention=True,
-                 encoder_depth=3, attention_depth=3):
+                 encoder_depth=3, attention_depth=3, attention_encoder_depth=3, encoder_filter=None,
+                 decoder_filter=None,
+                 attention_encoder_filter=None):
         super().__init__()
         self.attention = attention
         self.unets = nn.ModuleList([])
@@ -153,18 +188,18 @@ class AttentionUnet(nn.Module):
         if attention:
             for i in range(attention_depth):
                 self.unets.append(UNet(in_channels=in_channels, out_channels=out_channels, n_class=n_class,
-                                       kernel_size=kernel_size, padding=padding, stride=stride, depth=encoder_depth))
+                                       kernel_size=kernel_size, padding=padding, stride=stride, depth=encoder_depth,
+                                       encoder_filter=encoder_filter, decoder_filter=decoder_filter))
                 self.attentions.append(
                     Attention(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size,
-                              padding=padding, stride=stride, depth=encoder_depth))
-
+                              padding=padding, stride=stride, depth=attention_encoder_depth,
+                              encoder_filter=attention_encoder_filter))
             self.out = nn.Conv2d(out_channels, n_class, kernel_size, padding, stride)
-
             self.dpool = nn.AvgPool2d((2, 2))
-
         else:
             self.m1 = UNet(in_channels=in_channels, out_channels=out_channels, n_class=n_class,
-                                       kernel_size=kernel_size, padding=padding, stride=stride, depth=encoder_depth)
+                           kernel_size=kernel_size, padding=padding, stride=stride, depth=encoder_depth,
+                           encoder_filter=encoder_filter, decoder_filter=decoder_filter)
 
     def forward(self, x):
         if self.attention:
@@ -210,4 +245,3 @@ def test():
         optimizer.step()
 
         print('Epoch {}, Loss {}'.format(epoch, loss.item()))
-

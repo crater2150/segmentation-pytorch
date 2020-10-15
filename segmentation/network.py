@@ -66,7 +66,7 @@ def unpad(tensor, o_shape):
     return output
 
 
-def test(model, device, test_loader, criterion):
+def test(model, device, test_loader, criterion, padding_value=32):
     model.eval()
     test_loss = 0
     correct = 0
@@ -75,7 +75,7 @@ def test(model, device, test_loader, criterion):
         for idx, (data, target, id) in enumerate(test_loader):
             data, target = data.to(device), target.to(device, dtype=torch.int64)
             shape = list(data.shape)[2:]
-            padded = pad(data, 32)
+            padded = pad(data, padding_value)
 
             input = padded.float()
 
@@ -98,7 +98,7 @@ def test(model, device, test_loader, criterion):
 
 
 def train(model, device, train_loader, optimizer, epoch, criterion, accumulation_steps=8, color_map=None,
-          callback: TrainProgressCallbackWrapper = None, debug=False):
+          callback: TrainProgressCallbackWrapper = None, padding_value=32, debug=False):
     def debug_img(mask, target, original, color_map):
         if color_map is not None:
             from matplotlib import pyplot as plt
@@ -129,7 +129,7 @@ def train(model, device, train_loader, optimizer, epoch, criterion, accumulation
         data, target = data.to(device), target.to(device, dtype=torch.int64)
 
         shape = list(data.shape)[2:]
-        padded = pad(data, 32)
+        padded = pad(data, padding_value)
 
         input = padded.float()
 
@@ -164,7 +164,7 @@ def train(model, device, train_loader, optimizer, epoch, criterion, accumulation
 
 def train_unlabeled(model, device, train_loader, unlabeled_loader,
                     optimizer, epoch, criterion, accumulation_steps=8,
-                    color_map=None, train_step=50, alpha_factor=3, epoch_conv=15, debug=False):
+                    color_map=None, train_step=50, alpha_factor=3, epoch_conv=15, debug=False, padding_value=32):
     def alpha_weight(epoch):
         return min((epoch / epoch_conv) * alpha_factor, alpha_factor)
 
@@ -195,7 +195,7 @@ def train_unlabeled(model, device, train_loader, unlabeled_loader,
     for batch_idx, (data, target, id) in enumerate(unlabeled_loader):
         data = data.to(device)
         shape = list(data.shape)[2:]
-        padded = pad(data, 32)
+        padded = pad(data, padding_value)
 
         input = padded.float()
         model.eval()
@@ -260,6 +260,7 @@ class Network(object):
         classes: int = None
         encoder_depth: int = None
         decoder_channel: Tuple[int, ...] = None
+        padding_value = None
         custom_model = None
         if isinstance(settings, PredictorSettings):
 
@@ -280,7 +281,7 @@ class Network(object):
                     json_file = json.load(f)
             if self.settings.PREDICT_DATASET is not None:
                 self.settings.PREDICT_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(encoder if encoder else
-                                                                                                json_file["ENCODER"])
+                                                                                               json_file["ENCODER"])
         elif isinstance(settings, TrainSettings):
             custom_model = self.settings.CUSTOM_MODEL
             encoder = self.settings.ENCODER
@@ -288,6 +289,7 @@ class Network(object):
             classes = self.settings.CLASSES
             encoder_depth = self.settings.ENCODER_DEPTH
             decoder_channel = self.settings.DECODER_CHANNELS
+            padding_value = self.settings.PADDING_VALUE
             self.settings.TRAIN_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(self.settings.ENCODER)
             self.settings.VAL_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(self.settings.ENCODER)
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -308,15 +310,10 @@ class Network(object):
         else:
             from segmentation.model import CustomModel
             import json
-
-            print(custom_model)
-            #print(json.load(custom_model))
             if isinstance(custom_model, dict):
                 custom_model = CustomModelSettings(**custom_model)
             kwargs = custom_model.get_kwargs()
-            print(kwargs)
             self.model = CustomModel(custom_model.TYPE)()(**kwargs)
-            #self.model = CustomModel(custom_model)()()
 
         if self.settings.MODEL_PATH:
             try:
@@ -327,6 +324,7 @@ class Network(object):
         self.color_map = color_map  # Optional for visualisation of mask data
         self.model.to(self.device)
         self.encoder = encoder if encoder else json_file["ENCODER"]
+        self.padding_value = padding_value if padding_value else json_file["PADDING_VALUE"]
 
     def train(self, callback=None):
 
@@ -368,13 +366,14 @@ class Network(object):
                                 unlabeled_loader=pseudo_loader,
                                 optimizer=optimizer, epoch=epoch, criterion=criterion,
                                 accumulation_steps=self.settings.BATCH_ACCUMULATION,
-                                color_map=self.color_map, train_step=50, alpha_factor=3, epoch_conv=15)
+                                color_map=self.color_map, train_step=50, alpha_factor=3, epoch_conv=15,
+                                padding_value=self.padding_value)
             else:
                 train(self.model, self.device, train_loader, optimizer, epoch, criterion,
                       accumulation_steps=self.settings.BATCH_ACCUMULATION,
                       color_map=self.color_map,
-                      callback=callback)
-            accuracy, loss = test(self.model, self.device, val_loader, criterion=criterion)
+                      callback=callback, padding_value=self.padding_value)
+            accuracy, loss = test(self.model, self.device, val_loader, criterion=criterion, padding_value=self.padding_value)
             if self.settings.OUTPUT_PATH is not None:
 
                 if accuracy > highest_accuracy:
@@ -396,7 +395,7 @@ class Network(object):
         criterion = nn.CrossEntropyLoss()
         val_loader = data.DataLoader(dataset=self.settings.PREDICT_DATASET, batch_size=1,
                                      shuffle=False)
-        accuracy, loss = test(self.model, self.device, val_loader, criterion=criterion)
+        accuracy, loss = test(self.model, self.device, val_loader, criterion=criterion, padding_value=self.padding_value)
 
         return accuracy, loss
 
@@ -430,7 +429,7 @@ class Network(object):
                 for transformer in transforms:
                     augmented_image = transformer.augment_image(data)
                     shape = list(augmented_image.shape)[2:]
-                    padded = pad(augmented_image, 32)  ## 2**5
+                    padded = pad(augmented_image, self.padding_value)  ## 2**5
 
                     input = padded.float()
                     output = self.model(input)
@@ -481,7 +480,7 @@ class Network(object):
             for transformer in transforms:
                 augmented_image = transformer.augment_image(data)
                 shape = list(augmented_image.shape)[2:]
-                padded = pad(augmented_image, 32)  ## 2**5
+                padded = pad(augmented_image, self.padding_value)  ## 2**5
 
                 input = padded.float()
                 output = self.model(input)
@@ -651,16 +650,24 @@ if __name__ == '__main__':
     # transform=compose([base_line_transform()]))  # transform=compose([base_line_transform()]))
     from segmentation.settings import TrainSettings
     from segmentation.settings import CustomModelSettings
+
     setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=dt, VAL_DATASET=d_test,
                             OUTPUT_PATH="/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/attention_net23",
                             MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/ICDAR2019_b2_ed7.torch',
-                            ENCODER_DEPTH=5, CUSTOM_MODEL=CustomModelSettings(CLASSES=len(map), ENCODER_DEPTH=4))  # ENCODER_DEPTH=6, DECODER_CHANNELS=(256, 128, 64, 32, 16, 8))
+                            PADDING_VALUE=64,
+                            CUSTOM_MODEL=CustomModelSettings(CLASSES=len(map),
+                                                             ENCODER_DEPTH=4,
+                                                             ENCODER_FILTER=[16, 32, 64, 128, 256],
+                                                             DECODER_FILTER=[16, 32, 64, 128, 256],
+                                                             ATTENTION_ENCODER_FILTER=[16, 32, 64, 128],
+                                                             )
+                            )
 
     p_setting = PredictorSettings(PREDICT_DATASET=d_predict,
                                   MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/attention_net23.torch')
     trainer = Network(p_setting, color_map=map)
     #trainer.train()
-    from PIL import Image
+    #from PIL import Image
 
     # a = np.array(Image.open(a.get('images')[0]))
     # data = trainer.predict_single_image(a)
