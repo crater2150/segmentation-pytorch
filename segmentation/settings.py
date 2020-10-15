@@ -1,6 +1,6 @@
 from segmentation.modules import Architecture
 from segmentation.dataset import MaskDataset
-from typing import NamedTuple, Tuple
+from typing import NamedTuple, Tuple, List
 from segmentation.optimizer import Optimizers
 from dataclasses import dataclass, field, asdict
 from enum import Enum
@@ -12,17 +12,20 @@ from dataclasses_json import dataclass_json
 @dataclass
 class CustomModelSettings:
     CLASSES: int
+    ENCODER_FILTER: list
+    DECODER_FILTER: list
+    ATTENTION_ENCODER_FILTER: list
     TYPE: str = "attentionunet"
-    ENCODER_FILTER = []
-    DECODER_FILTER = []
     KERNEL_SIZE: int = 3
     PADDING: int = 1
     STRIDE: int = 1
     ENCODER_DEPTH: int = 3
     ATTENTION_DEPTH: int = 3
+    ATTENTION_ENCODER_DEPTH: int = 3
     ACTIVATION: bool = False
     CHANNELS_IN: int = 3
     CHANNELS_OUT: int = 16
+    ATTENTION: bool = True
 
     def get_kwargs(self):
         return {
@@ -32,9 +35,15 @@ class CustomModelSettings:
             "kernel_size": self.KERNEL_SIZE,
             "padding": self.PADDING,
             "stride": self.STRIDE,
-            "attention": False,
+            "attention": self.ATTENTION,
             "encoder_depth": self.ENCODER_DEPTH,
-            "attention_depth": self.ATTENTION_DEPTH}
+            "attention_depth": self.ATTENTION_DEPTH,
+            "encoder_filter": self.ENCODER_FILTER,
+            "decoder_filter": self.DECODER_FILTER,
+            "attention_encoder_filter": self.ATTENTION_ENCODER_FILTER,
+            "attention_encoder_depth": self.ATTENTION_ENCODER_DEPTH,
+        }
+
 
 @dataclass
 class TrainSettings:
@@ -50,12 +59,12 @@ class TrainSettings:
     LEARNINGRATE_ENCODER: float = 1.e-5
     LEARNINGRATE_DECODER: float = 1.e-4
     LEARNINGRATE_SEGHEAD: float = 1.e-4
+    PADDING_VALUE: int = 32
 
     CUSTOM_MODEL: CustomModelSettings = None
     DECODER_CHANNELS: Tuple[int, ...] = field(default_factory=tuple)
     ENCODER_DEPTH: int = 5
     ENCODER: str = 'efficientnet-b3'
-
     BATCH_ACCUMULATION: int = 8
     TRAIN_BATCH_SIZE: int = 1
     VAL_BATCH_SIZE: int = 1
