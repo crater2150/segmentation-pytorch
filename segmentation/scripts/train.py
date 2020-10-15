@@ -128,7 +128,7 @@ def main():
                 ENCODER_FILTER=args.encoder_filter,
                 DECODER_FILTER=args.decoder_filter,
                 ATTENTION_ENCODER_FILTER=args.encoder_attention_filter,
-                ATTENTION=args.attention,
+                ATTENTION=args.use_attention,
                 CLASSES=len(map),
                 ATTENTION_DEPTH=args.attention_depth,
                 ENCODER_DEPTH=args.custom_model.custom_model_encoder_depth,
