@@ -65,7 +65,7 @@ def main():
     parser.add_argument('--eval', action="store_true", help="Starts evaluation on test set after training")
     parser.add_argument("--scale_area", type=int, default=1000000,
                         help="max pixel amount of an image")
-    parser.add_argument('--custom_model',
+    parser.add_argument('--custom_model', action="store_true",
                         help='Use Custom model for training')
     parser.add_argument("--custom_model_kernel_size", type=int, default=3,
                         help="kernel size of the custom model")
