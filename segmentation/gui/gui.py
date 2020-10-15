@@ -11,6 +11,7 @@ from itertools import chain
 from shapely.geometry import LineString, box
 from segmentation.util import multiple_file_types
 
+
 class App:
     '''
     Contains the GUI Elements and updates the GUI
@@ -138,6 +139,7 @@ class Controller:
 
         self.scale = None
         self.image_file_name = None
+
     # ----------BUTTON EVENTS----------
 
     def load_img_thread(self):
@@ -151,8 +153,7 @@ class Controller:
         filename = fd.askopenfilename()  # starts dialogwindow
         if filename == "":
             return
-        if self.directory is None:
-            self.directory = os.path.dirname(filename)
+        self.directory = os.path.dirname(filename)
         thread = threading.Thread(target=self.load_img,
                                   name="Thread1",
                                   args=[filename])
@@ -191,9 +192,9 @@ class Controller:
             return
         # get the textregions already resized and resize to imageframe size
         self.lock = States.FULL_LOCK
-        from segmentation.postprocessing.baseline_extraction import extraxct_baselines_from_probability_map
+        from segmentation.postprocessing.baseline_extraction import extract_baselines_from_probability_map
         probmap, scale_factor = self.network.predict_single_image_by_path(filename)
-        baselines = extraxct_baselines_from_probability_map(probmap)
+        baselines = extract_baselines_from_probability_map(probmap)
         if baselines and len(baselines) > 0:
             for ind, baseline in enumerate(baselines):
                 from segmentation.postprocessing.simplify_line import VWSimplifier
@@ -222,7 +223,7 @@ class Controller:
         from itertools import chain
         self.imageframe.delete("baseline")
         for baseline in self.baselines:
-            if len(baseline) <= 2:
+            if len(baseline) <= 1:
                 continue
             t = list(chain.from_iterable(baseline))
             lined_id = self.app.imageframe.create_line(t, fill='green', width=3, tag="baseline")
@@ -258,6 +259,25 @@ class Controller:
                 if list2[0] not in ret:
                     ret.append(list2[0])
             ret = sorted(ret, key=lambda x: x[0])
+            return ret
+
+        def remove_items_from_list2(list1, list2):
+            list2 = [(int(x[0]), int(x[1])) for x in list2]
+            bl = sorted(list1, key=lambda x: x[0])
+            intersection = sorted(list2, key=lambda x: x[0])
+            if intersection[0][0] <= bl[0][0] <= intersection[-1][0]:
+                for ind, x in reversed(list(enumerate(bl))):
+                    if x[0] < intersection[-1][0]:
+                        del (bl[ind])
+                if len(bl) > 0:
+                    bl.insert(0, intersection[-1])
+            if intersection[0][0] <= bl[-1][0] <= intersection[-1][0]:
+                for ind, x in reversed(list(enumerate(bl))):
+                    if x[0] > intersection[0][0]:
+                        del (bl[ind])
+                if len(bl) > 0:
+                    bl.append(intersection[0])
+            ret = sorted(bl, key=lambda x: x[0])
             return ret
 
         coords = self.app.imageframe.coords(self.rect)
@@ -495,10 +515,11 @@ class Controller:
         :return:
         '''
         if self.lock == States.NO_STATE or self.lock == States.LOAD_IMAGE:
-            files = list(multiple_file_types(os.path.join(self.directory,"*png"),os.path.join(self.directory, "*jpg")))
-            index = files.index(os.path.join(self.directory,self.im_name)+ "." + self.suffix)
-            index = index + 1 if len(files) - 1 > index else 0
-            filename = files[index + 1]
+            files = list(multiple_file_types(os.path.join(self.directory, "*png"), os.path.join(self.directory, "*jpg"),
+                                             os.path.join(self.directory, "*tif")))
+            index = files.index(os.path.join(self.directory, self.im_name) + "." + self.suffix)
+            index = index + 1 if index + 1 < len(files) else 0
+            filename = files[index]
             pass
             # dir_path = fd.askdirectory()
             # self.save_directory = dir_path
@@ -506,6 +527,7 @@ class Controller:
                                       name="Thread1",
                                       args=[filename])
             thread.start()
+
     def set_save_dir(self):
         '''
         sets up save directory mode
@@ -525,11 +547,21 @@ class Controller:
                 return
             self.extract_xml_info()
 
-    def extract_xml_info(self, debug = True):
+    def extract_xml_info(self, debug=True):
         import copy
         cop_baselines = copy.deepcopy(self.baselines)
         cop_baselines = [x for x in cop_baselines if len(x) > 0]
         scale_baselines(cop_baselines, 1 / self.scale)
+
+
+        from segmentation.gui.xml_util import TextRegion, BaseLine, TextLine
+        regions = [TextRegion([TextLine(coords=None, baseline=BaseLine(x))]) for x in cop_baselines]
+
+        xmlgen = XMLGenerator(self.im_width, self.im_height, self.im_name, regions=regions)
+
+        print(xmlgen.baselines_to_xml_string())
+        print("Saving xml file")
+        xmlgen.save_textregions_as_xml(self.save_directory)
         if debug:
             colors = [(255, 0, 0),
                       (0, 255, 0),
@@ -540,25 +572,17 @@ class Controller:
             from PIL import ImageDraw
             import itertools
             from matplotlib import pyplot
-            img = Image.open(self.image_file_name)  # open image
+            img = Image.open(self.image_file_name)
+            img = img.convert('RGB')# open image
             draw = ImageDraw.Draw(img)
+            print(cop_baselines)
             for ind, x in enumerate(cop_baselines):
                 t = list(itertools.chain.from_iterable(x))
                 a = t[::]
-                draw.line(a, fill=colors[ind % len(colors)], width=4)
+                draw.line(a, fill=colors[ind % len(colors)], width=6)
             array = np.array(img)
             pyplot.imshow(array)
             pyplot.show()
-
-        from segmentation.gui.xml_util import TextRegion, BaseLine, TextLine
-        regions = [TextRegion([TextLine(coords=None, baseline=BaseLine(x))]) for x in cop_baselines]
-
-        xmlgen = XMLGenerator(self.im_width, self.im_height, self.im_name, regions=regions)
-
-        print(xmlgen.baselines_to_xml_string())
-        xmlgen.save_textregions_as_xml(self.save_directory)
-        pass
-
 
 # Holds different Lock-States
 class States(Enum):
@@ -636,7 +660,6 @@ class Binder:
         self.cont = controller
 
     def bind(self, bind_list: List[Binds], tag: str = ""):
-        print(list)
         if Binds.de_rec in bind_list:
             self.imfr.bind("<ButtonPress-1>", self.cont.baseline_delete_rec_on_button_press)
             self.imfr.bind("<B1-Motion>", self.cont.baseline_delete_rec_on_move_press)
@@ -731,6 +754,6 @@ if __name__ == "__main__":
                             OUTPUT_PATH="/home/alexanderh/PycharmProjects/segmentation-pytorch/data/effnet2.torch",
                             MODEL_PATH='/home/alexanderh/PycharmProjects/segmentation-pytorch/data/effnet.torch.torch')
     p_setting = PredictorSettings(PREDICT_DATASET=d_predict,
-                                  MODEL_PATH='/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/ICDAR2019_b.torch')#/home/alexander/PycharmProjects/segmentation_pytorch/models/effnet2.torch.torch')
+                                  MODEL_PATH='/mnt/sshfs/hartelt/seg_torch_experiments/models_out/model_89.torch')  # /home/alexander/PycharmProjects/segmentation_pytorch/models/effnet2.torch.torch')
     trainer = Network(p_setting, color_map=map)
     start_GUI(network=trainer)
