@@ -65,6 +65,7 @@ def main():
     parser.add_argument('--eval', action="store_true", help="Starts evaluation on test set after training")
     parser.add_argument("--scale_area", type=int, default=1000000,
                         help="max pixel amount of an image")
+    parser.add_argument("--padding_value", type=int, help="padding size of the image")
     parser.add_argument('--custom_model', action="store_true",
                         help='Use Custom model for training')
     parser.add_argument("--custom_model_kernel_size", type=int, default=3,
@@ -79,7 +80,6 @@ def main():
     parser.add_argument('--encoder_filter', nargs='+', type=int, help="filter of the encoder of the custom model. Number of filters should be equal to enocder depth + 1")
     parser.add_argument('--decoder_filter', nargs='+', type=int, help="filter of the decoder of the custom model. Number of filters should be equal to encoder depth + 1")
     parser.add_argument('--encoder_attention_filter', nargs='+', type=int, help="filter of the attention encoder of the custom model. Number of filters should be equal to attention depth + 1")
-
     parser.add_argument('--seed', default=123, type=int)
     args = parser.parse_args()
     train = dirs_to_pandaframe(args.train_input, args.train_mask)
@@ -108,6 +108,7 @@ def main():
                                     OPTIMIZER=Optimizers(args.optimizer), BATCH_ACCUMULATION=args.batch_accumulation,
                                     ENCODER=args.encoder,
                                     ARCHITECTURE=Architecture(args.architecture), PROCESSES=args.processes,
+                                    PADDING_VALUE=args.padding_value,
                                     CUSTOM_MODEL=args.custom_model)
             trainer = Network(setting, color_map=map)
             trainer.train()
