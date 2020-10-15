@@ -85,8 +85,6 @@ def main():
     train = dirs_to_pandaframe(args.train_input, args.train_mask)
     test = dirs_to_pandaframe(args.test_input, args.test_mask)
     test = test if len(test) > 0 else train
-    train = train[:50]
-    test = test[:10]
     map = load_image_map_from_file(args.map)
     from segmentation.dataset import base_line_transform
     settings = MaskSetting(MASK_TYPE=MaskType.BASE_LINE, PCGTS_VERSION=PCGTSVersion.PCGTS2013, LINEWIDTH=5,
