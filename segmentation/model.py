@@ -161,10 +161,10 @@ class AttentionUnet(nn.Module):
             self.out = nn.Conv2d(out_channels, n_class, kernel_size, padding, stride)
 
             self.dpool = nn.AvgPool2d((2, 2))
-            #self.upscale = nn.UpsamplingNearest2d(())
 
         else:
-            self.m1 = UNet(in_channels, out_channels, n_class, kernel_size, padding, stride, activation='softmax')
+            self.m1 = UNet(in_channels=in_channels, out_channels=out_channels, n_class=n_class,
+                                       kernel_size=kernel_size, padding=padding, stride=stride, depth=encoder_depth)
 
     def forward(self, x):
         if self.attention:
@@ -210,5 +210,4 @@ def test():
         optimizer.step()
 
         print('Epoch {}, Loss {}'.format(epoch, loss.item()))
-
 

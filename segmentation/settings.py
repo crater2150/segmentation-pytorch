@@ -1,23 +1,40 @@
-from enum import Enum
 from segmentation.modules import Architecture
 from segmentation.dataset import MaskDataset
-from typing import NamedTuple, List, Tuple
+from typing import NamedTuple, Tuple
 from segmentation.optimizer import Optimizers
-from segmentation.model import CustomModel
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from enum import Enum
 import json
+from dataclasses_json import dataclass_json
 
+
+@dataclass_json
 @dataclass
-class CustomModelSettings(NamedTuple):
-    TYPE: str = "unet"
-    DEPTH: int = 3
+class CustomModelSettings:
+    CLASSES: int
+    TYPE: str = "attentionunet"
     ENCODER_FILTER = []
     DECODER_FILTER = []
     KERNEL_SIZE: int = 3
     PADDING: int = 1
     STRIDE: int = 1
+    ENCODER_DEPTH: int = 3
+    ATTENTION_DEPTH: int = 3
     ACTIVATION: bool = False
+    CHANNELS_IN: int = 3
+    CHANNELS_OUT: int = 16
+
+    def get_kwargs(self):
+        return {
+            "in_channels": self.CHANNELS_IN,
+            "out_channels": self.CHANNELS_OUT,
+            "n_class": self.CLASSES,
+            "kernel_size": self.KERNEL_SIZE,
+            "padding": self.PADDING,
+            "stride": self.STRIDE,
+            "attention": False,
+            "encoder_depth": self.ENCODER_DEPTH,
+            "attention_depth": self.ATTENTION_DEPTH}
 
 @dataclass
 class TrainSettings:
@@ -55,13 +72,15 @@ class TrainSettings:
     def to_json(self):
         json_dict = {}
         for x in list(self.__dict__.keys()):
-            # if x == "DECODER_CHANNELS":
-            #    print(x)
+
             if x in ['PSEUDO_DATASET', 'TRAIN_DATASET', 'VAL_DATASET']:
                 continue
             else:
                 if isinstance(self.__dict__[x], Enum):
                     json_dict[x] = self.__dict__[x].value
+                    continue
+                if isinstance(self.__dict__[x], CustomModelSettings):
+                    json_dict[x] = asdict(self.__dict__[x])
                     continue
                 json_dict[x] = self.__dict__[x]
         t = json.dumps(json_dict, indent=4)
@@ -70,9 +89,6 @@ class TrainSettings:
     @staticmethod
     def load_from_json(self, json):
         pass
-
-
-
 
 
 class PredictorSettings(NamedTuple):
