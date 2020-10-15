@@ -102,6 +102,22 @@ def main():
             test_dataset = XMLDataset(test_fold, map, transform=compose([base_line_transform()]),
                                       mask_generator=MaskGenerator(settings=settings), scale_area=args.scale_area)
             model_path = args.output + "_fold{}".format(ind)
+            custom_model = None
+            if args.custom_model:
+                from segmentation.settings import CustomModelSettings
+                custom_model = CustomModelSettings(
+                    ENCODER_FILTER=args.encoder_filter,
+                    DECODER_FILTER=args.decoder_filter,
+                    ATTENTION_ENCODER_FILTER=args.encoder_attention_filter,
+                    ATTENTION=args.use_attention,
+                    CLASSES=len(map),
+                    ATTENTION_DEPTH=args.attention_depth,
+                    ENCODER_DEPTH=args.custom_model_encoder_depth,
+                    ATTENTION_ENCODER_DEPTH=args.custom_model_attention_encoder_depth,
+                    STRIDE=args.custom_model_stride_size,
+                    PADDING=args.custom_model_padding_size,
+                    KERNEL_SIZE=args.custom_model_kernel_size,
+                )
             setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=train_dataset, VAL_DATASET=test_dataset,
                                     OUTPUT_PATH=model_path,
                                     MODEL_PATH=args.load, EPOCHS=args.n_epoch,
@@ -109,7 +125,7 @@ def main():
                                     ENCODER=args.encoder,
                                     ARCHITECTURE=Architecture(args.architecture), PROCESSES=args.processes,
                                     PADDING_VALUE=args.padding_value,
-                                    CUSTOM_MODEL=args.custom_model)
+                                    CUSTOM_MODEL=custom_model)
             trainer = Network(setting, color_map=map)
             trainer.train()
             model_paths.append(model_path)
@@ -145,7 +161,7 @@ def main():
                                 OPTIMIZER=Optimizers(args.optimizer), BATCH_ACCUMULATION=args.batch_accumulation,
                                 ENCODER=args.encoder,
                                 ARCHITECTURE=Architecture(args.architecture), PROCESSES=args.processes,
-                                CUSTOM_MODEL=custom_model)
+                                CUSTOM_MODEL=custom_model, PADDING_VALUE=args.padding_value)
 
         trainer = Network(setting, color_map=map)
         trainer.train()
