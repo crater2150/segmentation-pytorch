@@ -131,7 +131,7 @@ def main():
                 ATTENTION=args.use_attention,
                 CLASSES=len(map),
                 ATTENTION_DEPTH=args.attention_depth,
-                ENCODER_DEPTH=args.custom_model.custom_model_encoder_depth,
+                ENCODER_DEPTH=args.custom_model_encoder_depth,
                 ATTENTION_ENCODER_DEPTH=args.custom_model_attention_encoder_depth,
                 STRIDE=args.custom_model_stride_size,
                 PADDING=args.custom_model_padding_size,
