@@ -5,7 +5,7 @@ from collections.abc import Iterable
 import torch
 import torch.nn as nn
 from torch.utils import data
-from segmentation.settings import TrainSettings, PredictorSettings
+from segmentation.settings import TrainSettings, PredictorSettings, CustomModelSettings
 import segmentation_models_pytorch as sm
 from segmentation.dataset import label_to_colors, XMLDataset
 from typing import Union, Tuple
@@ -311,6 +311,7 @@ class Network(object):
             from segmentation.model import CustomModel
             import json
             if isinstance(custom_model, dict):
+                from segmentation.settings import CustomModelSettings
                 custom_model = CustomModelSettings(**custom_model)
             kwargs = custom_model.get_kwargs()
             self.model = CustomModel(custom_model.TYPE)()(**kwargs)

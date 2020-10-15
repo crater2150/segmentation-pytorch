@@ -4,6 +4,7 @@ import warnings
 import glob
 import os
 
+import scipy
 from skimage.filters import try_all_threshold, threshold_local
 from PIL import Image, ImageDraw
 from segmentation.postprocessing.baseline_extraction import extract_baselines_from_probability_map
@@ -108,6 +109,14 @@ def main():
             image = img.resize((int(scale_factor * img.size[0]), int(scale_factor * img.size[1])))
             img = img.convert('RGB')
             draw = ImageDraw.Draw(img)
+            #from matplotlib import pyplot as plt
+            #f, ax = plt.subplots(1, 3, True, True)
+            #ax[0].imshow(image)
+            #map = scipy.special.softmax(p_map, axis=-1)
+            #ax[1].imshow(map[:,:,1])
+            #ax[2].imshow(map[:,:,2])
+
+            #plt.show()
             if baselines is not None:
                 from segmentation.preprocessing.ocrupus import binarize
                 binary = (binarize(np.array(image).astype("float64"))).astype("uint8")

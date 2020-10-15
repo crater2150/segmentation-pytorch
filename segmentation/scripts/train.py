@@ -65,18 +65,26 @@ def main():
     parser.add_argument('--eval', action="store_true", help="Starts evaluation on test set after training")
     parser.add_argument("--scale_area", type=int, default=1000000,
                         help="max pixel amount of an image")
-    parser.add_argument('--custom_model',
-                        default=None,
-                        const=None,
-                        nargs='?',
-                        choices=["unet", "attentionunet"],
-                        help='Network architecture to use for training')
+    parser.add_argument("--padding_value", type=int, help="padding size of the image", default=32)
+    parser.add_argument('--custom_model', action="store_true",
+                        help='Use Custom model for training')
+    parser.add_argument("--custom_model_kernel_size", type=int, default=3,
+                        help="kernel size of the custom model")
+    parser.add_argument("--custom_model_padding_size", type=int, default=1, help="padding of the custom model")
+    parser.add_argument("--custom_model_stride_size", type=int, default=1, help="stride of the custom model")
+    parser.add_argument("--custom_model_encoder_depth", type=int, default=3, help="encoder depth of the custom model")
+    parser.add_argument("--custom_model_attention_encoder_depth", type=int, default=3,
+                        help="attention_encoder depth of the custom model")
+    parser.add_argument("--use_attention", action="store_true", help="use attention for the custom model")
+    parser.add_argument("--attention_depth", type=int, default=3, help="attention depth of the custom model")
+    parser.add_argument('--encoder_filter', nargs='+', type=int, help="filter of the encoder of the custom model. Number of filters should be equal to enocder depth + 1")
+    parser.add_argument('--decoder_filter', nargs='+', type=int, help="filter of the decoder of the custom model. Number of filters should be equal to encoder depth + 1")
+    parser.add_argument('--encoder_attention_filter', nargs='+', type=int, help="filter of the attention encoder of the custom model. Number of filters should be equal to attention depth + 1")
     parser.add_argument('--seed', default=123, type=int)
     args = parser.parse_args()
     train = dirs_to_pandaframe(args.train_input, args.train_mask)
     test = dirs_to_pandaframe(args.test_input, args.test_mask)
     test = test if len(test) > 0 else train
-
     map = load_image_map_from_file(args.map)
     from segmentation.dataset import base_line_transform
     settings = MaskSetting(MASK_TYPE=MaskType.BASE_LINE, PCGTS_VERSION=PCGTSVersion.PCGTS2013, LINEWIDTH=5,
@@ -93,13 +101,30 @@ def main():
             test_dataset = XMLDataset(test_fold, map, transform=compose([base_line_transform()]),
                                       mask_generator=MaskGenerator(settings=settings), scale_area=args.scale_area)
             model_path = args.output + "_fold{}".format(ind)
+            custom_model = None
+            if args.custom_model:
+                from segmentation.settings import CustomModelSettings
+                custom_model = CustomModelSettings(
+                    ENCODER_FILTER=args.encoder_filter,
+                    DECODER_FILTER=args.decoder_filter,
+                    ATTENTION_ENCODER_FILTER=args.encoder_attention_filter,
+                    ATTENTION=args.use_attention,
+                    CLASSES=len(map),
+                    ATTENTION_DEPTH=args.attention_depth,
+                    ENCODER_DEPTH=args.custom_model_encoder_depth,
+                    ATTENTION_ENCODER_DEPTH=args.custom_model_attention_encoder_depth,
+                    STRIDE=args.custom_model_stride_size,
+                    PADDING=args.custom_model_padding_size,
+                    KERNEL_SIZE=args.custom_model_kernel_size,
+                )
             setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=train_dataset, VAL_DATASET=test_dataset,
                                     OUTPUT_PATH=model_path,
                                     MODEL_PATH=args.load, EPOCHS=args.n_epoch,
                                     OPTIMIZER=Optimizers(args.optimizer), BATCH_ACCUMULATION=args.batch_accumulation,
                                     ENCODER=args.encoder,
                                     ARCHITECTURE=Architecture(args.architecture), PROCESSES=args.processes,
-                                    CUSTOM_MODEL=args.custom_model)
+                                    PADDING_VALUE=args.padding_value,
+                                    CUSTOM_MODEL=custom_model)
             trainer = Network(setting, color_map=map)
             trainer.train()
             model_paths.append(model_path)
@@ -112,13 +137,30 @@ def main():
                                   mask_generator=MaskGenerator(settings=settings))
         model_path = args.output
 
+        custom_model = None
+        if args.custom_model:
+            from segmentation.settings import CustomModelSettings
+            custom_model = CustomModelSettings(
+                ENCODER_FILTER=args.encoder_filter,
+                DECODER_FILTER=args.decoder_filter,
+                ATTENTION_ENCODER_FILTER=args.encoder_attention_filter,
+                ATTENTION=args.use_attention,
+                CLASSES=len(map),
+                ATTENTION_DEPTH=args.attention_depth,
+                ENCODER_DEPTH=args.custom_model_encoder_depth,
+                ATTENTION_ENCODER_DEPTH=args.custom_model_attention_encoder_depth,
+                STRIDE=args.custom_model_stride_size,
+                PADDING=args.custom_model_padding_size,
+                KERNEL_SIZE=args.custom_model_kernel_size,
+            )
+
         setting = TrainSettings(CLASSES=len(map), TRAIN_DATASET=train_dataset, VAL_DATASET=test_dataset,
                                 OUTPUT_PATH=args.output,
                                 MODEL_PATH=args.load, EPOCHS=args.n_epoch,
                                 OPTIMIZER=Optimizers(args.optimizer), BATCH_ACCUMULATION=args.batch_accumulation,
                                 ENCODER=args.encoder,
                                 ARCHITECTURE=Architecture(args.architecture), PROCESSES=args.processes,
-                                CUSTOM_MODEL=args.custom_model)
+                                CUSTOM_MODEL=custom_model, PADDING_VALUE=args.padding_value)
 
         trainer = Network(setting, color_map=map)
         trainer.train()
