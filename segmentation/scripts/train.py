@@ -74,7 +74,7 @@ def main():
     parser.add_argument("--custom_model_encoder_depth", type=int, default=3, help="encoder depth of the custom model")
     parser.add_argument("--custom_model_attention_encoder_depth", type=int, default=3,
                         help="attention_encoder depth of the custom model")
-    parser.add_argument("--use_attention", type=bool, action="store_true", help="use attention for the custom model")
+    parser.add_argument("--use_attention", action="store_true", help="use attention for the custom model")
     parser.add_argument("--attention_depth", type=int, default=3, help="attention depth of the custom model")
     parser.add_argument('--encoder_filter', nargs='+', type=int, help="filter of the encoder of the custom model. Number of filters should be equal to enocder depth + 1")
     parser.add_argument('--decoder_filter', nargs='+', type=int, help="filter of the decoder of the custom model. Number of filters should be equal to encoder depth + 1")
