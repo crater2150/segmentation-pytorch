@@ -1,8 +1,10 @@
 import multiprocessing
 
 import numpy as np
+import scipy
 
 from segmentation.util import angle_to, PerformanceCounter, logger
+
 
 class BaseLineCCs(object):
     def __init__(self, cc, type):
@@ -102,6 +104,21 @@ def calculate_distance(index, ccs, maximum_angle, baseline_border_image):
 def extract_baselines_from_probability_map(image_map: np.array, base_line_index=1, base_line_border_index=2,
                                            original=None, processes=8):
     image = np.argmax(image_map, axis=-1)
+    #image2 = np.zeros(image_map[:, :, 0].shape)
+    #map = scipy.special.softmax(image_map, axis=-1)
+
+    #bl = map[:, :, 1] > 0.8
+    #border = map[:, :, 2] > 0.5
+    #print(image2.shape)
+    #print(bl.shape)
+    #print(border.shape)
+    #from matplotlib import pyplot as plt
+    #plt.imshow(bl.astype(int))
+    #plt.show()
+    #image2 = np.stack((image2, bl.astype(int), border.astype(int)))
+
+    #print(image2.shape)
+    #image = np.argmax(image2, axis=-1)
     return extract_baselines(image_map=image, base_line_index=base_line_index,
                              base_line_border_index=base_line_border_index, original=original, processes=processes)
 
