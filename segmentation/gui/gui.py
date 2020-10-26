@@ -153,8 +153,7 @@ class Controller:
         filename = fd.askopenfilename()  # starts dialogwindow
         if filename == "":
             return
-        if self.directory is None:
-            self.directory = os.path.dirname(filename)
+        self.directory = os.path.dirname(filename)
         thread = threading.Thread(target=self.load_img,
                                   name="Thread1",
                                   args=[filename])
@@ -519,8 +518,8 @@ class Controller:
             files = list(multiple_file_types(os.path.join(self.directory, "*png"), os.path.join(self.directory, "*jpg"),
                                              os.path.join(self.directory, "*tif")))
             index = files.index(os.path.join(self.directory, self.im_name) + "." + self.suffix)
-            index = index + 1 if len(files) - 1 > index else 0
-            filename = files[index + 1]
+            index = index + 1 if index + 1 < len(files) else 0
+            filename = files[index]
             pass
             # dir_path = fd.askdirectory()
             # self.save_directory = dir_path
@@ -553,6 +552,16 @@ class Controller:
         cop_baselines = copy.deepcopy(self.baselines)
         cop_baselines = [x for x in cop_baselines if len(x) > 0]
         scale_baselines(cop_baselines, 1 / self.scale)
+
+
+        from segmentation.gui.xml_util import TextRegion, BaseLine, TextLine
+        regions = [TextRegion([TextLine(coords=None, baseline=BaseLine(x))]) for x in cop_baselines]
+
+        xmlgen = XMLGenerator(self.im_width, self.im_height, self.im_name, regions=regions)
+
+        print(xmlgen.baselines_to_xml_string())
+        print("Saving xml file")
+        xmlgen.save_textregions_as_xml(self.save_directory)
         if debug:
             colors = [(255, 0, 0),
                       (0, 255, 0),
@@ -563,26 +572,17 @@ class Controller:
             from PIL import ImageDraw
             import itertools
             from matplotlib import pyplot
-            img = Image.open(self.image_file_name)  # open image
+            img = Image.open(self.image_file_name)
+            img = img.convert('RGB')# open image
             draw = ImageDraw.Draw(img)
+            print(cop_baselines)
             for ind, x in enumerate(cop_baselines):
                 t = list(itertools.chain.from_iterable(x))
                 a = t[::]
-                draw.line(a, fill=colors[ind % len(colors)], width=4)
+                draw.line(a, fill=colors[ind % len(colors)], width=6)
             array = np.array(img)
             pyplot.imshow(array)
             pyplot.show()
-
-        from segmentation.gui.xml_util import TextRegion, BaseLine, TextLine
-        regions = [TextRegion([TextLine(coords=None, baseline=BaseLine(x))]) for x in cop_baselines]
-
-        xmlgen = XMLGenerator(self.im_width, self.im_height, self.im_name, regions=regions)
-
-        print(xmlgen.baselines_to_xml_string())
-        print("Saving xml file")
-        xmlgen.save_textregions_as_xml(self.save_directory)
-        pass
-
 
 # Holds different Lock-States
 class States(Enum):
@@ -660,7 +660,6 @@ class Binder:
         self.cont = controller
 
     def bind(self, bind_list: List[Binds], tag: str = ""):
-        print(list)
         if Binds.de_rec in bind_list:
             self.imfr.bind("<ButtonPress-1>", self.cont.baseline_delete_rec_on_button_press)
             self.imfr.bind("<B1-Motion>", self.cont.baseline_delete_rec_on_move_press)
