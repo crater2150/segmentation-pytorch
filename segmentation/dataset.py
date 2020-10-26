@@ -126,6 +126,8 @@ class MaskDataset(Dataset):
 
         mask = np.array(rescale_pil(mask, rescale_factor, 0))
         image = np.array(rescale_pil(image, rescale_factor, 1))
+        if image.dtype == bool:
+            image = image.astype("uint8") * 255
         image, mask = process(image, mask, rgb=self.rgb, preprocessing=self.preprocessing,
                               apply_preprocessing=apply_preprocessing, augmentation=self.augmentation,
                               binary_augmentation=True, color_map=self.color_map)
@@ -152,7 +154,8 @@ class MemoryDataset(Dataset):
         mask = mask_id
         rescale_factor = get_rescale_factor(image, scale_area=self.scale_area)
         image = np.array(rescale_pil(Image.fromarray(image), rescale_factor, 1))
-
+        if image.dtype == bool:
+            image = image.astype("uint8") * 255
         image, mask = process(image, mask, rgb=self.rgb, preprocessing=self.preprocessing,
                               apply_preprocessing=apply_preprocessing, augmentation=self.augmentation,
                               binary_augmentation=True,
@@ -178,13 +181,13 @@ class XMLDataset(Dataset):
 
     def __getitem__(self, item, apply_preprocessing=True):
         image_id, mask_id = self.df.get('images')[item], self.df.get('masks')[item]
-
         image = Image.open(image_id)
         rescale_factor = get_rescale_factor(image, scale_area=self.scale_area)
 
         mask = self.mask_generator.get_mask(mask_id, rescale_factor)
         image = np.array(rescale_pil(image, rescale_factor, 1))
-
+        if image.dtype == bool:
+            image = image.astype("uint8") * 255
         image, mask = process(image, mask, rgb=self.rgb, preprocessing=self.preprocessing,
                               apply_preprocessing=apply_preprocessing, augmentation=self.augmentation,
                               binary_augmentation=True, color_map=self.color_map)
