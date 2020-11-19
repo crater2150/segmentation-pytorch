@@ -1,3 +1,4 @@
+import itertools
 import os
 from typing import Tuple, List
 import math
@@ -67,6 +68,10 @@ class XMLGenerator:
         creates the xml to the given baselines
         :return: xml-string of baselines
         """
+        def make_id_gen(identifier):
+            return map(lambda x: f"{identifier}{x}", itertools.count(start=1))
+        textline_id_gen = make_id_gen("TextLine")
+
         xmlns_uris = {'pc': 'http://schema.primaresearch.org/PAGE/gts/pagecontent/2017-07-15'}
         attr_qname = ET.QName("http://www.w3.org/2001/XMLSchema-instance", "schemaLocation")
         root_node = ET.Element("PcGts", {
@@ -85,7 +90,7 @@ class XMLGenerator:
 
             for i_ind, i in enumerate(t.textLines):
                 # ET.SubElement(tr_node, "Coords", points=self.coords_to_string(region.coords))
-                tl_node = ET.SubElement(tr_node, "TextLine", id="TextLine")
+                tl_node = ET.SubElement(tr_node, "TextLine", id=next(textline_id_gen))
                 ET.SubElement(tl_node, "Coords", points=coords_to_string(i.coords))
                 ET.SubElement(tl_node, "Baseline", points=coords_to_string(i.baseline.coords))
         # annotate_with_XMLNS_prefixes(root_node, "pc", False)
