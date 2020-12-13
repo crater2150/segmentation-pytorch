@@ -32,6 +32,13 @@ def scale_baselines(baselines, scale_factor=1.0):
                 coord = (int(coord[0] * scale_factor), int(coord[1] * scale_factor))
                 baselines[b_idx][c_idx] = coord
 
+def simplify_baseline(bl):
+    new_coords = []
+    for coord in bl[:-1]:
+        if len(new_coords) == 0 or new_coords[-1][1] != coord[1] or new_coords[-1][0] != (coord[0] - 1):
+            new_coords.append(coord)
+    new_coords.append(bl[-1])
+    return new_coords
 
 class Ensemble:
     def __init__(self, models):
@@ -149,6 +156,7 @@ def main():
                                 draw.text((x.bbox[0]), "type:{}".format(x.baselines[0].cluster_type))
 
             scale_baselines(baselines, 1 / scale_factor)
+            baselines = [simplify_baseline(bl) for bl in baselines]
             if args.show_baselines:
                 if baselines is not None and len(baselines) > 0:
 
