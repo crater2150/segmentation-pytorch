@@ -25,4 +25,10 @@ setup(
     ],
     keywords=['OCR', 'page segmentation', 'pixel classifier'],
     data_files=[('', ["requirements.txt"])],
+
+    entry_points={
+        'console_scripts':[
+            'pytorchseg_predict=segmentation.scripts.predict:main'
+        ]
+    }
 )
