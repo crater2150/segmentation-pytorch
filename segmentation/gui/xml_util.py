@@ -96,7 +96,7 @@ class XMLGenerator:
         Transform textregions to xml and save it to output_path
         :param output_path:
         """
-        complete_name = os.path.join(output_path, self.imageFilename + ".xml")
+        complete_name = os.path.join(output_path, self.imageFilename.split(".")[0] + ".xml")  # remove .image extensions from filename
         output_string = self.baselines_to_xml_string()
         file = open(complete_name, "w")
         file.write(output_string)
