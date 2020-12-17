@@ -44,12 +44,13 @@ class Ensemble:
     def __init__(self, models):
         self.models = models
 
-    def __call__(self, x, scale_area, additional_scale_factor=None):
+    def __call__(self, x, scale_area, additional_scale_factor=None, flip_vertical=False):
         res = []
         scale_factor = None
         for m in self.models:
             p_map, s_factor = m.predict_single_image_by_path(x, rgb=True, preprocessing=True, scale_area=scale_area,
-                                                             additional_scale_factor=additional_scale_factor)
+                                                             additional_scale_factor=additional_scale_factor,
+                                                             flip_vertical=flip_vertical)
             scale_factor = s_factor
             res.append(p_map)
         if len(res) == 1:
@@ -94,6 +95,8 @@ def main():
     parser.add_argument("--marginalia_postprocessing", action="store_true", help="Enables marginalia postprocessing")
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--processes", type=int, default=8)
+    parser.add_argument("--improved_top_detection", action="store_true", help="Use improved baseline top detection")
+    parser.add_argument("--invertmatch", action="store_true", help="Using inverted matching for line height prediction")
 
     args = parser.parse_args()
     files = list(itertools.chain.from_iterable([glob.glob(x) for x in args.image_path]))
@@ -113,6 +116,7 @@ def main():
             p_map, scale_factor = ensemble(file, scale_area=args.scale_area,
                                            additional_scale_factor=scale_factor_multiplier)
             baselines = extract_baselines_from_probability_map(p_map, processes=args.processes)
+
             image = img.resize((int(scale_factor * img.size[0]), int(scale_factor * img.size[1])))
             img = img.convert('RGB')
             draw = ImageDraw.Draw(img)
@@ -128,7 +132,7 @@ def main():
                 from segmentation.preprocessing.ocrupus import binarize
                 binary = (binarize(np.array(image).astype("float64"))).astype("uint8")
                 with PerformanceCounter(function_name="Baseline Height Calculation mp"):
-                    out = get_top_of_baselines(baselines, image=1 - binary, processes=1)
+                        out = get_top_of_baselines(baselines, image=1 - binary, processes=1)
                 heights = [x[2] for x in out]
 
                 if (args.max_line_height is not None or args.min_line_height is not None) \
@@ -139,6 +143,8 @@ def main():
                         scale_factor_multiplier = (args.max_line_height - 7) / np.median(heights)
                         logger.info("Resizing image Avg:{}, Med:{} \n".format(np.mean(heights), np.median(heights)))
                         continue
+
+                 # Deactivate this layout prediction and instead use simple heuristics to get individual textlines
                 if args.layout_prediction:
                     with PerformanceCounter(function_name="Baseline Height Calculation "):
                         bboxs = analyse(baselines=baselines, image=(1 - binary), image2=image)
@@ -154,6 +160,8 @@ def main():
                             if x.bbox:
                                 draw.line(x.bbox + [x.bbox[0]], fill=colors[ind % len(colors)], width=3)
                                 draw.text((x.bbox[0]), "type:{}".format(x.baselines[0].cluster_type))
+
+
 
             scale_baselines(baselines, 1 / scale_factor)
             baselines = [simplify_baseline(bl) for bl in baselines]

@@ -144,18 +144,28 @@ def get_bboxs_below(bbox: BboxCluster, bbox_cluster: List[BboxCluster], height_t
     return result_direct
 
 
-def analyse(baselines, image, image2, processes=1):
+def analyse(baselines, image, image2, processes=1, use_improved_tops=True):
     result = []
     heights = []
     length = []
     if baselines is None:
         return
-    for baseline in baselines:
-        if len(baseline) != 0:
-            index, height = get_top(image=image, baseline=baseline)
-            result.append((baseline, index, height))
-            heights.append(height)
-            length.append(baseline[-1][1])
+    if use_improved_tops:
+        improved_tops = get_top_of_baselines_improved(baselines,image)
+
+        for vec in improved_tops:
+            result.append(vec)
+            heights.append(vec[2])
+            length.append(vec[0][-1][1])
+
+    else:
+        for baseline in baselines:
+            if len(baseline) != 0:
+                index, height = get_top(image=image, baseline=baseline)
+                result.append((baseline, index, height))
+                heights.append(height)
+                length.append(baseline[-1][1])
+
     img = Image.fromarray((1 - image) * 255).convert('RGB')
     draw = ImageDraw.Draw(img)
     colors = [(255, 0, 0),
@@ -407,6 +417,56 @@ def get_top_of_baselines(baselines, image=None, threshold=0.2, processes=1):
             out = list(p.map(p_get_top, baselines))
     else:
         out = list(map(p_get_top, baselines))
+
+    return out
+
+def get_top_of_baselines_improved(baselines, image=None, threshold=0.2, processes=1):
+    dist_inf = 1000000
+    # for each baseline, match a baseline that is above
+    # this matching is horribly inefficient and can be improved significantly
+    matches = []
+    for bl_id, bl in enumerate(baselines):
+        best_dist = dist_inf
+        for match_id, match_cand in enumerate(baselines):
+            if bl_id == match_id: continue
+            # the beginning and end coordinates are not allowed to deviate a lot
+            if abs(bl[0][0] - match_cand[0][0]) > image.shape[1] * 0.05: continue
+            if abs(bl[-1][0] - match_cand[-1][0]) > image.shape[1] * 0.05: continue
+
+            # calculate avg height
+            bl_h = sum(c[1] for c in bl) / len(bl)
+            mh = sum(c[1] for c in match_cand) / len (match_cand)
+            if mh > bl_h: continue # match candidate lies below
+            # score is height difference
+            dist = abs(mh-bl_h)
+            if dist < best_dist:
+                best_dist = dist
+
+        matches.append((bl, best_dist))
+
+    out = []
+    for match in matches:
+        bl, tb, height = get_top_wrapper(match[0],image, threshold=threshold)
+        if match[1] > height * 2 or match[1] == dist_inf:
+            _ , perfect_height = get_top(image,match[0],threshold = 0.001)
+            if perfect_height < height * 1.5:
+                height = perfect_height
+            else:
+                height = int(height * 1.5)
+        else:
+            height = int(match[1] - 2)
+            """
+            # we still have room, increase the height
+            if height * 1.5 > match[1]:
+                height = int(match[1]) - 1
+            else:
+                height = int(height * 1.5)
+            """
+
+        # get the highest y coordinate in the baseline
+        heighest = max(c[1] for c in bl)
+        height = min(height, heighest - 1)
+        out.append((bl, [(b[0], b[1] + height) for b in bl], height))
 
     return out
 
