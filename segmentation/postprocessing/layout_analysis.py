@@ -447,12 +447,12 @@ def get_top_of_baselines_improved(baselines, image=None, threshold=0.2, processe
     out = []
     for match in matches:
         bl, tb, height = get_top_wrapper(match[0],image, threshold=threshold)
-        if match[1] > height * 2 or match[1] == dist_inf:
+        if match[1] > height * 3 or match[1] == dist_inf:
             _ , perfect_height = get_top(image,match[0],threshold = 0.001)
-            if perfect_height < height * 1.5:
+            if perfect_height < height * 2:
                 height = perfect_height
             else:
-                height = int(height * 1.5)
+                height = int(height * 2)
         else:
             height = int(match[1] - 2)
             """
