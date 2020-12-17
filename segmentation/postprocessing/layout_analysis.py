@@ -395,15 +395,18 @@ def get_top_wrapper(baseline, image=None, threshold=0.2):
     return baseline, top_border, height
 
 
-def get_top(image, baseline, threshold=0.2):
+def get_top(image, baseline, threshold=0.2, disable_now=False):
     x, y = zip(*baseline)
     indexes = (np.array(y), np.array(x))
     before = 0
     height = 0
-    while True:
+    for i in range(np.min(indexes[0])): # do at most min_height steps, so that min(y) == 0
         indexes = (indexes[0] - 1, indexes[1])
+        if np.min(indexes[0]) == 0:
+            height = height + 1
+            return list(zip(indexes[1], indexes[0])), height  # we have to stop right now
         now = np.sum(image[indexes])
-        if (before * threshold > now or now <= 5) and height > 5:
+        if (before * threshold > now or (now <= 5 and not disable_now)) and height > 5:
             break
         height = height + 1
         before = now if now > before else before
@@ -448,13 +451,13 @@ def get_top_of_baselines_improved(baselines, image=None, threshold=0.2, processe
     for match in matches:
         bl, tb, height = get_top_wrapper(match[0],image, threshold=threshold)
         if match[1] > height * 3 or match[1] == dist_inf:
-            _ , perfect_height = get_top(image,match[0],threshold = 0.001)
+            _ , perfect_height = get_top(image,match[0],threshold = 0.05, disable_now=False)
             if perfect_height < height * 2:
                 height = perfect_height
             else:
                 height = int(height * 2)
         else:
-            height = int(match[1] - 2)
+            height = int(min(match[1] - 1, (height * 2 + match[1]) / 2))
             """
             # we still have room, increase the height
             if height * 1.5 > match[1]:
