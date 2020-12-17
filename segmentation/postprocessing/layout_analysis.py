@@ -434,7 +434,11 @@ def get_top_of_baselines_improved(baselines, image=None, threshold=0.2, processe
             if bl_id == match_id: continue
             # the beginning and end coordinates are not allowed to deviate a lot
             if abs(bl[0][0] - match_cand[0][0]) > image.shape[1] * 0.05: continue
-            if abs(bl[-1][0] - match_cand[-1][0]) > image.shape[1] * 0.05: continue
+
+            # right side must not be much shorter, but can be much longer
+            if bl[-1][0] > match_cand[-1][0]:
+                if abs(bl[-1][0] - match_cand[-1][0]) > image.shape[1] * 0.05: continue
+
 
             # calculate avg height
             bl_h = sum(c[1] for c in bl) / len(bl)
