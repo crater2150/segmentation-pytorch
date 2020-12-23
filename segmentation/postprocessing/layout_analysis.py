@@ -12,9 +12,48 @@ import numpy as np
 from sklearn.cluster import DBSCAN
 from PIL import Image, ImageDraw
 
+from collections.abc import Collection, Iterable
+
 '''
 Todo: Refactor file
 '''
+
+class BaselineCollection(Collection):
+    def __init__(self, baselines=[]):
+        self.baselines = baselines
+
+    def __iter__(self):
+        return iter(self.baselines)
+
+    def __len__(self):
+        return len(self.baselines)
+
+    def __contains__(self, bl):
+        return bl in self.baselines  # TODO: maybe compare by points, not by reference?
+
+
+class Baseline(Iterable):
+    def __init__(self, points):
+        self.points = points
+
+    def unzip(self):
+        return zip(*self.points)
+
+    def as_array(self):
+        return np.array(self.points)
+
+    def __iter__(self):
+        return iter(self.points)
+
+
+class BaselinePrediction:
+    def __init__(self, baselines: BaselineCollection, upper_baselines:BaselineCollection=BaselineCollection([])):
+        self.baselines = baselines
+        self.upper_baselines = upper_baselines
+
+    def to_json(self):
+        pass
+
 
 
 def is_below(b1: BboxCluster, b2: BboxCluster, gap_padding_factor=0.5):
@@ -144,7 +183,7 @@ def get_bboxs_below(bbox: BboxCluster, bbox_cluster: List[BboxCluster], height_t
     return result_direct
 
 
-def analyse(baselines, image, image2, processes=1, use_improved_tops=True):
+def analyse(baselines, image, image2, processes=1, use_improved_tops=True, process_pool: multiprocessing.Pool = None):
     result = []
     heights = []
     length = []
@@ -413,17 +452,16 @@ def get_top(image, baseline, threshold=0.2, disable_now=False):
     return list(zip(indexes[1], indexes[0])), height
 
 
-def get_top_of_baselines(baselines, image=None, threshold=0.2, processes=1):
+def get_top_of_baselines(baselines, image=None, threshold=0.2, process_pool: multiprocessing.Pool = None):
     p_get_top = partial(get_top_wrapper, image=image, threshold=threshold)
-    if processes > 1:
-        with multiprocessing.Pool(processes=processes, maxtasksperchild=100) as p:
-            out = list(p.map(p_get_top, baselines))
+    if process_pool:
+        out = list(process_pool.map(p_get_top, baselines))
     else:
         out = list(map(p_get_top, baselines))
 
     return out
 
-def get_top_of_baselines_improved(baselines, image=None, threshold=0.2, processes=1):
+def get_top_of_baselines_improved(baselines, image=None, threshold=0.2, process_pool: multiprocessing.Pool = None):
     dist_inf = 1000000
     # for each baseline, match a baseline that is above
     # this matching is horribly inefficient and can be improved significantly

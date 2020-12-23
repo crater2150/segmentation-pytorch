@@ -101,8 +101,8 @@ def calculate_distance(index, ccs, maximum_angle, baseline_border_image):
     return (index1, index2), value
 
 
-def extract_baselines_from_probability_map(image_map: np.array, base_line_index=1, base_line_border_index=2,
-                                           original=None, processes=8):
+def extract_baselines_from_probability_map(image_map: np.array, process_pool, base_line_index=1, base_line_border_index=2,
+                                           original=None):
     image = np.argmax(image_map, axis=-1)
     #image2 = np.zeros(image_map[:, :, 0].shape)
     #map = scipy.special.softmax(image_map, axis=-1)
@@ -119,11 +119,11 @@ def extract_baselines_from_probability_map(image_map: np.array, base_line_index=
 
     #print(image2.shape)
     #image = np.argmax(image2, axis=-1)
-    return extract_baselines(image_map=image, base_line_index=base_line_index,
-                             base_line_border_index=base_line_border_index, original=original, processes=processes)
+    return extract_baselines(image_map=image, process_pool=process_pool, base_line_index=base_line_index,
+                             base_line_border_index=base_line_border_index, original=original)
 
 
-def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_index=2, original=None, processes=1):
+def extract_baselines(image_map: np.array, process_pool, base_line_index=1, base_line_border_index=2, original=None, processes=1):
     from scipy.ndimage.measurements import label
 
     base_ind = np.where(image_map == base_line_index)
@@ -141,22 +141,23 @@ def extract_baselines(image_map: np.array, base_line_index=1, base_line_border_i
     all_ccs = baseline_ccs  # + baseline_border_ccs
     logger.info("Extracted {} CCs from probability map \n".format(len(all_ccs)))
 
-    def calculate_distance_matrix(ccs, maximum_angle=5, processes=8):
+    def calculate_distance_matrix(ccs, maximum_angle=5):
         distance_matrix = np.zeros((len(ccs), len(ccs)))
 
         from functools import partial
         distance_func = partial(calculate_distance, ccs=ccs, maximum_angle=maximum_angle,
                                 baseline_border_image=baseline_border)
         indexes_ccs = list(range(len(ccs)))
-        with multiprocessing.Pool(processes=processes, maxtasksperchild=100) as p:
-            out = list(p.map(distance_func, indexes_ccs))
+
+        out = list(process_pool.map(distance_func, indexes_ccs))
+
         for x in out:
             indexes, values = x
             distance_matrix[indexes] = values
         return distance_matrix
 
     with PerformanceCounter(function_name="calculate_distance_matrix"):
-        matrix = calculate_distance_matrix(all_ccs, processes=processes)
+        matrix = calculate_distance_matrix(all_ccs)
 
     from sklearn.cluster import DBSCAN
     if np.sum(matrix) == 0:

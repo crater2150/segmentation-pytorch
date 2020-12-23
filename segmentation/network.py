@@ -305,7 +305,7 @@ class Network(object):
             self.model_params['decoder_use_batchnorm'] = False
             self.model_params['encoder_name'] = encoder if encoder else json_file["ENCODER"]
             self.model_params['encoder_depth'] = json_file["ENCODER_DEPTH"] if json_file else encoder_depth
-            #   PÜelf.model_params['decoder_channels'] = json_file["DECODER_CHANNELS"] if json_file else decoder_channel
+            # self.model_params['decoder_channels'] = json_file["DECODER_CHANNELS"] if json_file else decoder_channel
             self.model = get_model(architecture, self.model_params)
         else:
             from segmentation.model import CustomModel
@@ -501,7 +501,8 @@ class Network(object):
             return out
 
     def predict_single_image_by_path(self, path, rgb=True, preprocessing=True, tta_aug=None, scale_area=1000000,
-                                     additional_scale_factor=None, flip_vertical=False):
+                                     additional_scale_factor=None):
+        raise DeprecationWarning()
         from PIL import Image
         from segmentation.dataset import get_rescale_factor, rescale_pil
         from segmentation.util import gray_to_rgb
@@ -511,8 +512,6 @@ class Network(object):
         if additional_scale_factor is not None:
             rescale_factor = rescale_factor * additional_scale_factor
         image = np.array(rescale_pil(image, rescale_factor, 1))
-        if flip_vertical:
-            image = np.flip(image, axis=0)
 
         return self.predict_single_image(image, rgb=rgb, preprocessing=preprocessing, tta_aug=tta_aug), rescale_factor
 
