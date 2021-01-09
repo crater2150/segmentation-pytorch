@@ -19,7 +19,6 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 import itertools
 import numpy as np
 from segmentation.util import logger
-from functools import cached_property
 
 
 def dir_path(string):
@@ -36,17 +35,7 @@ def scale_baselines(baselines, scale_factor=1.0):
                 coord = (int(coord[0] * scale_factor), int(coord[1] * scale_factor))
                 baselines[b_idx][c_idx] = coord
 
-def simplify_baseline(bl):
-    new_coords = []
-    new_coords.append(bl[0])
 
-    for before, cur, after in zip(bl, bl[1:-1], bl[2:]):
-        if before[1] == cur[1] and cur[1] == after[1]:
-            continue
-        else:
-            new_coords.append(cur)
-    new_coords.append(bl[-1])
-    return new_coords
 
 
 class SourceImage:
@@ -156,6 +145,34 @@ class DebugDraw:
 
     def image(self):
         return self.img
+
+
+def simplify_baseline(bl):
+    new_coords = [bl[0]]
+
+    for before, cur, after in zip(bl, bl[1:-1], bl[2:]):
+        if before[1] == cur[1] and cur[1] == after[1]:
+            continue
+        else:
+            new_coords.append(cur)
+    new_coords.append(bl[-1])
+    return new_coords
+
+
+def make_baseline_continous(bl):
+    # when downscaling the baseline might not be continuous
+    # this method ensures, that we have a  mapping for each x-coordinate to a y-coordinate for a baseline bl
+    xstart, xend = bl[0][0], bl[-1][0]
+    new_xs = np.arange(xstart, xend + 1)
+    xs, ys = zip(*bl)
+    new_ys = (np.interp(new_xs, xs, ys) + 0.5).astype(int)
+    nl = list(zip(new_xs.tolist(), new_ys.tolist()))
+    return nl
+
+
+
+
+
 
 
 
@@ -268,6 +285,8 @@ def main():
                             debug_draw.draw_bboxs(bboxs)
 
                 scale_baselines(baselines, 1 / scale_factor)
+                with PerformanceCounter("Make BLs continous"):
+                    baselines = list(map(make_baseline_continous, baselines))
 
                 if args.show_baselines:
                     debug_draw.draw_baselines(baselines)
@@ -305,7 +324,7 @@ def main():
                         regions.append(TextRegion(text_lines, coords=[(0,0), (w,0), (w,h), (0,h)]))
 
                     xml_gen = XMLGenerator(source_image.pil_image.size[0], source_image.pil_image.size[1], os.path.basename(file), regions=regions)
-                    if (args.print_xml):
+                    if args.print_xml:
                         print(xml_gen.baselines_to_xml_string())
                     else:
                         xml_gen.save_textregions_as_xml(args.output_xml_path)
