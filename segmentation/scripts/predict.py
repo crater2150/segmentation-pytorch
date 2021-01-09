@@ -113,6 +113,8 @@ class DebugDrawDummy:
         pass
     def draw_baselines(self, baselines):
         pass
+    def draw_polygons(self, polys):
+        pass
     def image(self):
         raise NotImplementedError("requesting image but drawing is disables")
 
@@ -142,6 +144,11 @@ class DebugDraw:
             t = list(itertools.chain.from_iterable(x))
             a = t[::]
             self.draw.line(a, fill=DebugDraw.colors[ind % len(DebugDraw.colors)], width=4)
+
+    def draw_polygons(self, polys):
+        for ind, x in enumerate(polys):
+            l = list(itertools.chain.from_iterable(x))
+            self.draw.polygon(l, outline=DebugDraw.colors[ind % len(DebugDraw.colors)])
 
     def image(self):
         return self.img
@@ -197,6 +204,7 @@ def main():
     parser.add_argument("--layout_prediction", action="store_true", help="Generates Layout of the page "
                                                                          "based on the baselines")
     parser.add_argument("--show_baselines", action="store_true", help="Draws baseline to the debug image")
+    parser.add_argument("--show_lines", action="store_true", help="Draws line polygons to the debug image")
     parser.add_argument("--show_layout", action="store_true", help="Draws layout regions to the debug image")
     parser.add_argument("--output_xml", action="store_true", help="Outputs Xml Files")
     parser.add_argument("--output_xml_path", type=str, default=None, help="Directory of the XML output")
@@ -233,8 +241,9 @@ def main():
             scale_factor_multiplier = 1
             while True:
                 scaled_image = source_image.scale_area(args.scale_area,scale_factor_multiplier)
-                p_map = ensemble.predict_image(scaled_image)
-                baselines = extract_baselines_from_probability_map(p_map, process_pool=process_pool)
+                with PerformanceCounter("Prediction"):
+                    p_map = ensemble.predict_image(scaled_image)
+                    baselines = extract_baselines_from_probability_map(p_map, process_pool=process_pool)
 
                 scale_factor = scaled_image.scale_factor
 
@@ -249,7 +258,7 @@ def main():
                 #ax[2].imshow(map[:,:,2])
 
                 #plt.show()
-                if args.show_baselines or args.show_layout:
+                if args.show_baselines or args.show_layout or args.show_lines:
                     debug_draw = DebugDraw(source_image)
                 else:
                     debug_draw = DebugDrawDummy()
@@ -285,11 +294,21 @@ def main():
                             debug_draw.draw_bboxs(bboxs)
 
                 scale_baselines(baselines, 1 / scale_factor)
-                with PerformanceCounter("Make BLs continous"):
-                    baselines = list(map(make_baseline_continous, baselines))
+                baselines = list(map(make_baseline_continous, baselines))
 
                 if args.show_baselines:
                     debug_draw.draw_baselines(baselines)
+                if args.show_lines:
+                    baseline_tops = get_top_of_baselines_improved(baselines, 1 - source_image.binarized())
+                    # draw the polygons as well
+                    polys = []
+                    for bl, bl_top, _ in baseline_tops:
+                        bl = simplify_baseline(bl)
+                        bl_top = simplify_baseline(bl_top)
+                        text_region_coord = bl + list(reversed(bl_top))
+                        polys.append(text_region_coord)
+                    debug_draw.draw_polygons(polys)
+
 
                 if args.output_path_debug_images:
                     basename = "debug_" + os.path.basename(file)
@@ -313,7 +332,8 @@ def main():
                     elif baselines is not None:
                         # no layout segmentation is done, create text regions for each baseline
                         text_lines = []
-                        baseline_tops = get_top_of_baselines_improved(baselines, source_image.binarized())
+                        with PerformanceCounter("GetTopImproved"):
+                            baseline_tops = get_top_of_baselines_improved(baselines, 1 - source_image.binarized())
 
                         for bl, bl_top, _ in baseline_tops:
                             bl = simplify_baseline(bl)

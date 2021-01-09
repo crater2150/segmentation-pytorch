@@ -14,6 +14,8 @@ from PIL import Image, ImageDraw
 
 from collections.abc import Collection, Iterable
 
+from segmentation.util import PerformanceCounter
+
 '''
 Todo: Refactor file
 '''
@@ -434,21 +436,23 @@ def get_top_wrapper(baseline, image=None, threshold=0.2):
     return baseline, top_border, height
 
 
-def get_top(image, baseline, threshold=0.2, disable_now=False):
+def get_top(image, baseline, threshold=0.2, disable_now=False, max_steps=None):
+    if max_steps is None:
+        max_steps = int(image.shape[0])
     x, y = zip(*baseline)
     indexes = (np.array(y), np.array(x))
-    before = 0
+    max_black_pixels = 0
     height = 0
-    for i in range(np.min(indexes[0])): # do at most min_height steps, so that min(y) == 0
+    for i in range(min(np.min(indexes[0]), max_steps)): # do at most min_height steps, so that min(y) == 0
         indexes = (indexes[0] - 1, indexes[1])
         if np.min(indexes[0]) == 0:
             height = height + 1
             return list(zip(indexes[1], indexes[0])), height  # we have to stop right now
         now = np.sum(image[indexes])
-        if (before * threshold > now or (now <= 5 and not disable_now)) and height > 5:
+        if (max_black_pixels * threshold > now or (now <= 5 and not disable_now)) and height > 5:
             break
         height = height + 1
-        before = now if now > before else before
+        max_black_pixels = now if now > max_black_pixels else max_black_pixels
     return list(zip(indexes[1], indexes[0])), height
 
 
@@ -462,12 +466,19 @@ def get_top_of_baselines(baselines, image=None, threshold=0.2, process_pool: mul
     return out
 
 def get_top_of_baselines_improved(baselines, image=None, threshold=0.2, process_pool: multiprocessing.Pool = None):
-    dist_inf = 1000000
+    # check for each bl if its continous
+    for bl in baselines:
+        assert len(bl) == (bl[-1][0] - bl[0][0] + 1), "Baseline must be continuous for get_top_of_baselines"
+    baseline_ys = [list(zip(*bl))[1] for bl in baselines]
+    DIST_INF = 1000000
+    HEIGHT_MULTP = 1.5
+    HEIGHT_MULTP_MATCHING = 3 # this should be calculated as "avg line spacing"
+
     # for each baseline, match a baseline that is above
     # this matching is horribly inefficient and can be improved significantly
     matches = []
     for bl_id, bl in enumerate(baselines):
-        best_dist = dist_inf
+        best_dist = DIST_INF
         for match_id, match_cand in enumerate(baselines):
             if bl_id == match_id: continue
             # the beginning and end coordinates are not allowed to deviate a lot
@@ -477,10 +488,19 @@ def get_top_of_baselines_improved(baselines, image=None, threshold=0.2, process_
             if bl[-1][0] > match_cand[-1][0]:
                 if abs(bl[-1][0] - match_cand[-1][0]) > image.shape[1] * 0.05: continue
 
+            # remove points in the match candidate, that are further to the right than our baseline
+            bl_mx = bl[-1][0]
+            # trunc_match_cand_ys = [c[1] for c in match_cand if c[0] <= bl_mx]
+
+            # do fast truncation
+            start_diff = max(bl[0][0] - match_cand[0][0], 0)
+            trunc_match_cand_ys = baseline_ys[match_id][:len(bl) + start_diff]
 
             # calculate avg height
             bl_h = sum(c[1] for c in bl) / len(bl)
-            mh = sum(c[1] for c in match_cand) / len (match_cand)
+            #mh = sum(c[1] for c in match_cand if c[0] <= bl[-1][0]) / len (match_cand) # do not do this
+            # only take the avg height until the short bl ends
+            mh = sum(trunc_match_cand_ys) / len(trunc_match_cand_ys)
             if mh > bl_h: continue # match candidate lies below
             # score is height difference
             dist = abs(mh-bl_h)
@@ -492,14 +512,16 @@ def get_top_of_baselines_improved(baselines, image=None, threshold=0.2, process_
     out = []
     for match in matches:
         bl, tb, height = get_top_wrapper(match[0],image, threshold=threshold)
-        if match[1] > height * 3 or match[1] == dist_inf:
-            _ , perfect_height = get_top(image,match[0],threshold = 0.001, disable_now=True)
-            if perfect_height < height * 2:
+        if match[1] > height * HEIGHT_MULTP_MATCHING or match[1] == DIST_INF:
+            perfect_height_max = height * HEIGHT_MULTP_MATCHING
+            # without max steps, this can take way too long for broken inputs
+            _ , perfect_height = get_top(image,match[0],threshold=0.001, disable_now=True, max_steps=int(perfect_height_max + 1))
+            if perfect_height < perfect_height_max:
                 height = perfect_height
             else:
-                height = int(height * 2)
+                height = int(height * HEIGHT_MULTP)
         else:
-            height = int(min(match[1] - 1, (height * 2 + match[1]) / 2))
+            height = int(min(match[1] - 1, (height * HEIGHT_MULTP + match[1]) / 2))
             """
             # we still have room, increase the height
             if height * 1.5 > match[1]:
@@ -508,10 +530,11 @@ def get_top_of_baselines_improved(baselines, image=None, threshold=0.2, process_
                 height = int(height * 1.5)
             """
 
-        # get the highest y coordinate in the baseline
-        heighest = max(c[1] for c in bl)
+        # prevent growing lines out of the image
+        heighest = min(c[1] for c in bl)
         height = min(height, heighest - 1)
-        out.append((bl, [(b[0], b[1] + height) for b in bl], height))
+
+        out.append((bl, [(b[0], b[1] - height) for b in bl], height))
 
     return out
 
