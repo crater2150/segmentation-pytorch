@@ -192,7 +192,7 @@ def extract_baselines(image_map: np.array, process_pool, base_line_index=1, base
                 normalized_cc = []
                 for key in sorted(cc_dict.keys()):
                     value = cc_dict[key]
-                    normalized_cc.append([int(np.floor(np.mean(value) + 0.5)), key])
+                    normalized_cc.append([int(np.floor(np.mean(value) + 0.5)), int(key)])
                 normalized_cc_list.append(normalized_cc)
             return normalized_cc_list
 

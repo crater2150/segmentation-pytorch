@@ -1,4 +1,7 @@
+from dataclasses import dataclass
 from typing import NamedTuple, List, Tuple
+
+import dataclasses_json
 import numpy as np
 
 
@@ -74,3 +77,14 @@ class BboxCluster():
 
     def set_baselines(self, bl: List[BaselineResult]):
         self.baselines = bl
+
+
+@dataclasses_json.dataclass_json
+@dataclass
+class PredictionResult:
+    baselines: List
+    prediction_resolution: List
+    prediction_scale_factor: float = None
+    toplines: List = None
+    matching: List[List[List]] = None  # this could possible be an n to n relation
+    source_image: str = None

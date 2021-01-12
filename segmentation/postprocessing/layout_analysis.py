@@ -3,7 +3,7 @@ import itertools
 import math
 import multiprocessing
 from functools import partial
-from typing import List
+from typing import List, NamedTuple
 from segmentation.postprocessing.data_classes import BboxCluster, BaselineResult
 from segmentation.network import Network
 from segmentation.postprocessing.baseline_extraction import extract_baselines_from_probability_map
@@ -193,13 +193,15 @@ def analyse(baselines, image, image2, processes=1, use_improved_tops=True, proce
         return
     if use_improved_tops:
         improved_tops = get_top_of_baselines_improved(baselines,image)
-
-        for vec in improved_tops:
-            result.append(vec)
-            heights.append(vec[2])
-            length.append(vec[0][-1][1])
-
     else:
+        improved_tops = get_top_of_baselines(baselines,image)
+
+    for vec in improved_tops:
+        result.append(vec)
+        heights.append(vec[2])
+        length.append(vec[0][-1][1])
+
+    if False:
         for baseline in baselines:
             if len(baseline) != 0:
                 index, height = get_top(image=image, baseline=baseline)
@@ -431,9 +433,15 @@ def generate_clustered_lines(cluster_results: List[BaselineResult]):
     return clustered
 
 
+class MovedBaselineTop(NamedTuple):
+    baseline: List
+    top: List
+    height: int
+
+
 def get_top_wrapper(baseline, image=None, threshold=0.2):
     top_border, height = get_top(image, baseline, threshold=threshold)
-    return baseline, top_border, height
+    return MovedBaselineTop(baseline, top_border, height)
 
 
 def get_top(image, baseline, threshold=0.2, disable_now=False, max_steps=None):
@@ -464,6 +472,9 @@ def get_top_of_baselines(baselines, image=None, threshold=0.2, process_pool: mul
         out = list(map(p_get_top, baselines))
 
     return out
+
+
+
 
 def get_top_of_baselines_improved(baselines, image=None, threshold=0.2, process_pool: multiprocessing.Pool = None):
     # check for each bl if its continous
@@ -534,7 +545,7 @@ def get_top_of_baselines_improved(baselines, image=None, threshold=0.2, process_
         heighest = min(c[1] for c in bl)
         height = min(height, heighest - 1)
 
-        out.append((bl, [(b[0], b[1] - height) for b in bl], height))
+        out.append(MovedBaselineTop(bl, [(b[0], b[1] - height) for b in bl], height))
 
     return out
 
