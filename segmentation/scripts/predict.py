@@ -101,6 +101,8 @@ class Predictor:
                         logger.info("Resizing image Avg:{}, Med:{} \n".format(np.mean(heights), np.median(heights)))
                         continue
             break
+        if baselines is None:
+            baselines = []
         # simplify the baselines
         baselines = [simplify_baseline(bl) for bl in baselines]
         # now we have the baselines extracted
