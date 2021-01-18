@@ -474,7 +474,7 @@ def get_top_of_baselines(baselines, image=None, threshold=0.2, process_pool: mul
     return out
 
 
-
+#def match_baselines_by_starting_point
 
 def get_top_of_baselines_improved(baselines, image=None, threshold=0.2, process_pool: multiprocessing.Pool = None):
     # check for each bl if its continous
@@ -518,7 +518,7 @@ def get_top_of_baselines_improved(baselines, image=None, threshold=0.2, process_
             if dist < best_dist:
                 best_dist = dist
 
-        matches.append((bl, best_dist))
+        matches.append((bl, best_dist, match_id))
 
     out = []
     for match in matches:

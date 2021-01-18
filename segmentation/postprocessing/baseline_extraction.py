@@ -161,8 +161,8 @@ def extract_baselines(image_map: np.array, process_pool, base_line_index=1, base
 
     from sklearn.cluster import DBSCAN
     if np.sum(matrix) == 0:
-        print("Empty Image")
-        return
+        logger.warning("Empty image.")
+        return []
     t = DBSCAN(eps=100, min_samples=1, metric="precomputed").fit(matrix)
 
     ccs = []

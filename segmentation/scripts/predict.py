@@ -117,7 +117,9 @@ def parse_args():
     parser.add_argument("--load", type=str, nargs="*", default=[],
                         help="load models and use it for inference")
     parser.add_argument("--image_path", type=str, nargs="*", default=[],
-                        help="load models and use it for inference")
+                        help="Specify image glob pattern")
+    parser.add_argument('files', metavar='FILE', type=str, nargs='*',
+                        help='Source files to process')
     parser.add_argument("--scale_area", type=int, default=1000000,
                         help="max pixel amount of an image")
     parser.add_argument("--output_path_debug_images", type=str, default=None, help="Directory of the debug images")
@@ -151,7 +153,15 @@ def parse_args():
 
 def main():
     args = parse_args()
-    files = list(itertools.chain.from_iterable([glob.glob(x) for x in args.image_path]))
+    if args.image_path:
+        if args.files is not None and args.files != []:
+            logger.error(f"Cannot specify --image_path and positional arguments at the same time")
+
+        logger.warning(f"Using glob filenames: {args.image_glob}.")
+        logger.warning("Glob might silently skip unreadable or unaccessable files.")
+        files = list(itertools.chain.from_iterable([glob.glob(x) for x in args.image_path]))
+    else:
+        files = args.files
     settings = PredictionSettings(args.load,args.scale_area, args.min_line_height, args.max_line_height)
 
     nn_predictor = Predictor(settings)
@@ -169,7 +179,6 @@ def main():
                     f.write(prediction.to_json())
 
             scale_factor = prediction.prediction_scale_factor
-            binary = scaled_image.binarized()
 
             layout_settings = LayoutProcessingSettings(marginalia_postprocessing=args.marginalia_postprocessing,
                                                        source_scale=True, lines_only=not args.layout_prediction)
