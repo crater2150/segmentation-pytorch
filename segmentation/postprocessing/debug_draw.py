@@ -46,11 +46,14 @@ class DebugDraw:
         for ind, x in enumerate(baselines):
             t = list(itertools.chain.from_iterable(x))
             a = t[::]
-            self.draw.line(a, fill=DebugDraw.colors[ind % len(DebugDraw.colors)], width=4)
+            self.draw.line(a, fill=DebugDraw.colors[ind % len(DebugDraw.colors)], width=1)
 
     def draw_polygons(self, polys):
         for ind, x in enumerate(polys):
+            if x[-1] != x[0]:
+                x = x + [x[0]]
             l = list(itertools.chain.from_iterable(x))
+
             self.draw.polygon(l, outline=DebugDraw.colors[ind % len(DebugDraw.colors)])
 
     def image(self):

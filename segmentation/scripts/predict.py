@@ -6,10 +6,13 @@ import glob
 import os
 
 from segmentation.postprocessing.baseline_extraction import extract_baselines_from_probability_map
-from segmentation.postprocessing.data_classes import PredictionResult
+from segmentation.postprocessing.data_classes import PredictionResult, BboxCluster
+from segmentation.postprocessing.debug_draw import DebugDraw
 from segmentation.postprocessing.layout_analysis import  get_top_of_baselines
+from segmentation.postprocessing.layout_line_segment import schnip_schnip_algorithm, cutout_to_polygon, \
+    find_dividing_path
 from segmentation.preprocessing.source_image import SourceImage
-from segmentation.scripts.layout import process_layout, LayoutProcessingSettings, layout_debugging
+from segmentation.scripts.layout import process_layout, LayoutProcessingSettings, layout_debugging, AnalyzedRegion
 from segmentation.settings import PredictorSettings
 from segmentation.util import PerformanceCounter
 
@@ -157,9 +160,9 @@ def main():
         if args.files is not None and args.files != []:
             logger.error(f"Cannot specify --image_path and positional arguments at the same time")
 
-        logger.warning(f"Using glob filenames: {args.image_glob}.")
-        logger.warning("Glob might silently skip unreadable or unaccessable files.")
-        files = list(itertools.chain.from_iterable([glob.glob(x) for x in args.image_path]))
+        logger.warn(f"Using glob filenames: {args.image_path}.")
+        logger.warn("Glob might silently skip unreadable or unaccessable files.")
+        files = sorted(itertools.chain.from_iterable([glob.glob(x) for x in args.image_path]))
     else:
         files = args.files
     settings = PredictionSettings(args.load,args.scale_area, args.min_line_height, args.max_line_height)
@@ -183,9 +186,25 @@ def main():
             layout_settings = LayoutProcessingSettings(marginalia_postprocessing=args.marginalia_postprocessing,
                                                        source_scale=True, lines_only=not args.layout_prediction)
 
+
+
             analyzed_content = process_layout(prediction, scaled_image,process_pool,layout_settings)
+
+            #layout_debugging(args, analyzed_content, scaled_image, file)
+
+            bbox: BboxCluster
+            analyzed_content.regions = []
+            with PerformanceCounter("SchnipSchnip"):
+                for bbox in analyzed_content.bboxs:
+                    cutouts = schnip_schnip_algorithm(scaled_image,prediction,bbox,None)
+                    lines = [cutout_to_polygon(co,scaled_image) for co in cutouts]
+                    reg = AnalyzedRegion(bbox, [co.bl for co in cutouts],lines,cutouts)
+                    analyzed_content.regions.append(reg)
+
             # convert this back to the original image space
             analyzed_content = analyzed_content.to_pagexml_space(scale_factor)
+
+
 
             # debugging
 
@@ -198,6 +217,6 @@ def main():
                 else:
                     xml_gen.save_textregions_as_xml(args.output_xml_path)
 
-
 if __name__ == "__main__":
-    main()
+    with PerformanceCounter("Total running time"):
+        main()

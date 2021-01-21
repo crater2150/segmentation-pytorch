@@ -6,7 +6,7 @@ from typing import NamedTuple, List, Dict
 from enum import Enum
 
 from segmentation.gui.xml_util import TextRegion, BaseLine, TextLine, XMLGenerator
-from segmentation.postprocessing.data_classes import PredictionResult
+from segmentation.postprocessing.data_classes import PredictionResult, BboxCluster
 from segmentation.postprocessing.debug_draw import DebugDraw
 from segmentation.postprocessing.layout_analysis import get_top_of_baselines_improved, analyse, connect_bounding_box
 from segmentation.preprocessing.source_image import SourceImage
@@ -43,10 +43,25 @@ class LayoutProcessingSettings(NamedTuple):
 
 # this structure should contain the finished content information of the page in PageXML coordinate space
 @dataclass
+class AnalyzedRegion:
+    bbox: BboxCluster
+    baselines: List
+    lines_polygons: List
+    cutouts: List
+
+    def scale(self, scale_factor:float = 1):
+        baselines = [scale_baseline(bl, scale_factor) for bl in self.baselines]
+        lines_polygons = [scale_baseline(lp, scale_factor) for lp in self.lines_polygons]
+        bbx = self.bbox.scale(scale_factor)
+        return AnalyzedRegion(bbox=bbx, baselines=baselines, lines_polygons=lines_polygons, cutouts=None) # todo scale cutouts
+
+
+@dataclass
 class AnalyzedContent:
     baselines: List = None
     lines_polygons: List = None
     bboxs: List = None
+    regions: List[AnalyzedRegion] = None
 
     def to_pagexml_space(self, scale_factor: float) -> 'AnalyzedContent':
         if scale_factor == 1 or scale_factor == 1.0:
@@ -54,6 +69,10 @@ class AnalyzedContent:
 
         undo_scale_factor = 1 / scale_factor
         baselines = [scale_baseline(bl, undo_scale_factor) for bl in self.baselines]
+        if self.regions:
+            reg = [r.scale(undo_scale_factor) for r in self.regions]
+        else:
+            reg = None
         if self.lines_polygons:
             lp = [scale_baseline(bl, undo_scale_factor) for bl in self.lines_polygons]
         else:
@@ -62,11 +81,19 @@ class AnalyzedContent:
             bbx = [x.scale(undo_scale_factor) for x in self.bboxs]
         else:
             bbx = None
-        return AnalyzedContent(baselines, lp, bbx)
+
+        return AnalyzedContent(baselines, lp, bbx, regions=reg)
 
     def export(self, source_image, source_filename, simplified_xml=False) -> XMLGenerator:
         regions = []
-        if self.bboxs is not None:
+        if self.regions is not None:
+            for ib, reg in enumerate(self.regions):
+                text_lines = []
+                for bline, tline in zip(reg.baselines, reg.lines_polygons):
+                    text_lines.append(TextLine(coords=tline, baseline=BaseLine(bline)))
+                regions.append(TextRegion(text_lines, coords=reg.bbox.bbox))
+
+        elif self.bboxs is not None:
             # Layout segmentation is done, save baselines inside the regions
             for box in self.bboxs:
                 text_lines = []
@@ -135,7 +162,10 @@ def layout_debugging(args, analyzed_content, source_image, image_filename):
         if args.show_baselines:
             debug_draw.draw_baselines(analyzed_content.baselines)
         if args.show_lines:
-            if analyzed_content.lines_polygons:
+            if analyzed_content.regions:
+                for reg in analyzed_content.regions:
+                    debug_draw.draw_polygons(reg.lines_polygons)
+            elif analyzed_content.lines_polygons:
                 debug_draw.draw_polygons(analyzed_content.lines_polygons)
             else:
                 baselines = list(map(make_baseline_continous, analyzed_content.baselines))

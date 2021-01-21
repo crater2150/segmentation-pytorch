@@ -239,6 +239,8 @@ def analyse(baselines, image, image2, processes=1, use_improved_tops=True, proce
             result_dict[ind] = [baseline, score1, x[2], vector, vector2]
             draw.line(list(itertools.chain.from_iterable(baseline)), fill=colors[ind % len(colors)], width=2)
 
+    if len(result_dict) == 0: return []
+
     inds = result_dict.keys()
     vectors = [result_dict[indice][3] for indice in inds]
     h, s = zip(*vectors)
@@ -476,7 +478,7 @@ def get_top_of_baselines(baselines, image=None, threshold=0.2, process_pool: mul
 
 #def match_baselines_by_starting_point
 
-def get_top_of_baselines_improved(baselines, image=None, threshold=0.2, process_pool: multiprocessing.Pool = None):
+def get_top_of_baselines_improved(baselines, image: np.ndarray=None, threshold=0.2, process_pool: multiprocessing.Pool = None):
     # check for each bl if its continous
     for bl in baselines:
         assert len(bl) == (bl[-1][0] - bl[0][0] + 1), "Baseline must be continuous for get_top_of_baselines"

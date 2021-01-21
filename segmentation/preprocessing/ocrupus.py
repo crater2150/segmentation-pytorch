@@ -3,6 +3,8 @@ import skimage
 from scipy.ndimage import filters, interpolation, morphology
 import scipy.stats as stats
 
+from segmentation.util import logger
+
 
 def estimate_skew(flat, bignore=0.1, maxskew=2, skewsteps=8):
     """ estimate skew angle and rotate"""
@@ -81,7 +83,7 @@ def normalize_raw_image(raw):
     image = raw - np.amin(raw)
     if np.amax(image) == np.amin(image):
         #print_info("# image is empty: %s" % (fname))
-        return None
+        return np.full_like(image,np.float(1.0))
     image = image / np.amax(image)
     return image
 
@@ -94,6 +96,9 @@ def binarize(image):
             # convert the image to greyscale
             # important to use this color space!!!!
             image = skimage.color.rgb2grey(image)
+    # check if the image is already binarized
+    if not np.any(np.logical_and(image > 0, image < 255)):
+        return image > 0
     image = normalize_raw_image(image)
     extreme = (
             (np.sum(image < 0.05) + np.sum(image > 0.95)) * 1.0 / np.prod(image.shape)
