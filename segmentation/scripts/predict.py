@@ -142,7 +142,7 @@ def parse_args():
                              "the document is scaled up an processed again on the new resolution")
     parser.add_argument("--marginalia_postprocessing", action="store_true", help="Enables marginalia postprocessing")
     parser.add_argument("--debug", action="store_true")
-    parser.add_argument("--processes", type=int, default=None)
+    parser.add_argument("--processes", type=int, default=8)
     parser.add_argument("--improved_top_detection", action="store_true", help="Use improved baseline top detection")
     parser.add_argument("--invertmatch", action="store_true", help="Using inverted matching for line height prediction")
     parser.add_argument("--print_xml", action="store_true", help="Print XML to stdout")
@@ -191,15 +191,16 @@ def main():
             analyzed_content = process_layout(prediction, scaled_image,process_pool,layout_settings)
 
             #layout_debugging(args, analyzed_content, scaled_image, file)
+            if args.layout_prediction:
+                bbox: BboxCluster
+                analyzed_content.regions = []
 
-            bbox: BboxCluster
-            analyzed_content.regions = []
-            with PerformanceCounter("SchnipSchnip"):
-                for bbox in analyzed_content.bboxs:
-                    cutouts = schnip_schnip_algorithm(scaled_image,prediction,bbox,None)
-                    lines = [cutout_to_polygon(co,scaled_image) for co in cutouts]
-                    reg = AnalyzedRegion(bbox, [co.bl for co in cutouts],lines,cutouts)
-                    analyzed_content.regions.append(reg)
+                with PerformanceCounter("SchnipSchnip"):
+                    for bbox in analyzed_content.bboxs:
+                        cutouts = schnip_schnip_algorithm(scaled_image,prediction,bbox,process_pool)
+                        lines = [cutout_to_polygon(co,scaled_image) for co in cutouts]
+                        reg = AnalyzedRegion(bbox, [co.bl for co in cutouts],lines,cutouts)
+                        analyzed_content.regions.append(reg)
 
             # convert this back to the original image space
             analyzed_content = analyzed_content.to_pagexml_space(scale_factor)

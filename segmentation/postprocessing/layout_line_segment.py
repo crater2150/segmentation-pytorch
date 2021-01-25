@@ -1,6 +1,10 @@
+import ctypes
+import itertools
 import json
 import multiprocessing
-from collections import namedtuple, defaultdict
+import multiprocessing.sharedctypes
+
+from collections import namedtuple, defaultdict, deque
 from typing import List, Tuple
 import heapq
 
@@ -62,6 +66,7 @@ def make_path(target_node:QueueElem, start_node: QueueElem) -> List:
         node = node.parent
     return list(reversed(path_reversed))
 
+
 def find_dividing_path(inv_binary_img: np.ndarray, cut_above, cut_below) -> List:
     # assert, that both cut_baseline is a list of lists and cut_topline is also a list of lists
 
@@ -70,7 +75,7 @@ def find_dividing_path(inv_binary_img: np.ndarray, cut_above, cut_below) -> List
     def find_children(cur_node, x_start):
         x = cur_node[0]
         xi = x - x_start
-        y1, y2 = tl[xi][1], bl[xi][1]
+        y1, y2 = tl[xi][1], bl[xi][1] # TODO: shouldn't this be +1 ?
         if y1 > y2: y1, y2 = y2, y1
         #for y in range(max(tl[xi][1], cur_node[1] - 1), min(cur_node[1]+2, bl[xi][1] + 1)):
         for y in range(y1,y2+1):
@@ -78,14 +83,17 @@ def find_dividing_path(inv_binary_img: np.ndarray, cut_above, cut_below) -> List
 
     # use dijkstras algorithm to find the shortest dividing path
     # dummy start point
-    end_x = bl[-1][0]
+    end_x = int(bl[-1][0])
 
     # adjust the constant factor for different cutting behaviours
     def dist_fn(p1,p2):
-        if inv_binary_img[p2[1],p2[0]] > 0:
-            a = 1
-        return abs(p1[0] - p2[0]) + abs(p1[1] - p2[1]) + inv_binary_img[p2[1],p2[0]] * 1000
-    H_fn = lambda p: end_x - p[0]
+        return abs(p1[0] - p2[0]) + abs(p1[1] - p2[1]) + int(inv_binary_img[p2[1],p2[0]]) * 1000
+        # return 1+ abs( p2[1] - p1[1]) + int(inv_binary_img[p2[1],p2[0]]) * 1000
+        # bottom one is ~ 4% faster
+
+    def H_fn(p):
+        return end_x - p[0]
+    #H_fn = lambda p: end_x - p[0]
     nodeset = dict()
 
     start_point = (bl[0][0] - 1, int(abs(bl[0][1] + tl[0][1]) / 2))
@@ -119,12 +127,11 @@ def find_dividing_path(inv_binary_img: np.ndarray, cut_above, cut_below) -> List
 
     raise RuntimeError("Unreachable")
 
-
 QuadrupletElem = namedtuple("QuadruppletEleem", "bl_top tl_cur bl_cur tl_bot")
 
 CutoutElem = namedtuple("CutoutElem", "bl tc bc")
 
-def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionResult, bbox: BboxCluster, process_pool = None) -> List[CutoutElem]:
+def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionResult, bbox: BboxCluster, process_pool :multiprocessing.Pool = None) -> List[CutoutElem]:
     baselines_cont = [make_baseline_continous(bl) for bl in prediction.baselines]
     if prediction.toplines is not None:
         toplines_cont = [make_baseline_continous(bl) if bl is not None else None for bl in prediction.toplines]
@@ -170,10 +177,11 @@ def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionRes
         pyplot.show()
 
     #with PerformanceCounter("FindCuts"):
+    # doing MP here is probably not faster
     for pt, pb in zip(pairs, pairs[1:]):
-        #draw_bls([pt[0],pb[1]])
+        # draw_bls([pt[0],pb[1]])
         cuts.append(find_dividing_path(inv_binary,pt[0], pb[1]))
-        #draw_bls([pt[0], pb[1], cuts[-1]])
+        # draw_bls([pt[0], pb[1], cuts[-1]])
     for pair, tc, bc in zip(pairs[1:], cuts, cuts[1:]):
         bl_cutouts.append(CutoutElem(bl=pair[0], tc=tc, bc=bc))
 
