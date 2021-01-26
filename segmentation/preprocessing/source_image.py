@@ -12,6 +12,10 @@ class SourceImage:
         img = Image.open(filename)
         return SourceImage(img)
 
+    @staticmethod
+    def from_numpy(arr):
+        return SourceImage(Image.fromarray(arr))
+
     def __init__(self, img: Image, scale_factor=1):
         self.pil_image = img
         self.binarized_cache = None

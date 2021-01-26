@@ -1,9 +1,10 @@
 import itertools
 
 from PIL import ImageDraw
+from PIL.Image import Image
 
 from segmentation.preprocessing.source_image import SourceImage
-
+import numpy as np
 
 class DebugDrawDummy:
     def __init__(self, *args, **kwargs):
@@ -56,5 +57,13 @@ class DebugDraw:
 
             self.draw.polygon(l, outline=DebugDraw.colors[ind % len(DebugDraw.colors)])
 
-    def image(self):
+    def image(self) -> Image:
         return self.img
+
+    def show(self):
+        from matplotlib import pyplot
+        pyplot.imshow(SourceImage(self.image()).array())
+        pyplot.show()
+
+    def save(self, path):
+        self.img.save(path)

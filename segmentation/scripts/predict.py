@@ -194,7 +194,6 @@ def main():
             if args.layout_prediction:
                 bbox: BboxCluster
                 analyzed_content.regions = []
-
                 with PerformanceCounter("SchnipSchnip"):
                     for bbox in analyzed_content.bboxs:
                         cutouts = schnip_schnip_algorithm(scaled_image,prediction,bbox,process_pool)

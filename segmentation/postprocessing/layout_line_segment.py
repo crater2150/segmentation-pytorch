@@ -22,6 +22,7 @@ from segmentation.util import PerformanceCounter, logger
 QueueElem = namedtuple("QueueElem", "f d point parent")
 # f is dist + heur, d is distance, n is node, p is parent
 
+seq_number = 0
 def extend_baselines(line_a: List, line_b: List) -> Tuple[List,List]:
     start_dif = line_b[0][0] - line_a[0][0]
     end_swap = False
@@ -71,7 +72,24 @@ def find_dividing_path(inv_binary_img: np.ndarray, cut_above, cut_below) -> List
     # assert, that both cut_baseline is a list of lists and cut_topline is also a list of lists
 
     tl, bl = extend_baselines(cut_above, cut_below)
+    # see if there is a corridor, if not, push top baseline up by 1 px
+    min_channel = 3
+    for x, points in enumerate(zip(tl,bl)):
+        p1, p2 = points
+        if p1[1] > p2[1]:
+            tl[x], bl[x] = bl[x],tl[x]
+            p1, p2 = tl[x], bl[x]
 
+        if abs(p1[1] - p2[1]) <= min_channel:
+            if tl[x][1] > min_channel:
+                tl[x] = (tl[x][0], tl[x][1] - min_channel)
+            elif bl[x][1] + min_channel < inv_binary_img.shape[0]:
+                bl[x] = (bl[x][0], bl[x][1] + min_channel)
+            else:
+                assert False, "Unlucky"
+
+
+    """
     def find_children(cur_node, x_start):
         x = cur_node[0]
         xi = x - x_start
@@ -80,10 +98,22 @@ def find_dividing_path(inv_binary_img: np.ndarray, cut_above, cut_below) -> List
         #for y in range(max(tl[xi][1], cur_node[1] - 1), min(cur_node[1]+2, bl[xi][1] + 1)):
         for y in range(y1,y2+1):
             yield (x + 1,y)
+    """
+    def find_children_rect(cur_node, x_start):
+        x = cur_node[0]
+        y = cur_node[1]
+        xi = x - x_start
+        y1, y2 = tl[xi][1], bl[xi][1]  # TODO: shouldn't this be +1 ?
+        # if y1 > y2: y1, y2 = y2, y1
+        if tl[xi+1][1] <= y <= bl[xi+1][1]: yield (x+1,y)
+        if tl[xi + 1][1] <= y <= bl[xi + 1][1]: yield (x + 1, y)
+        if y > y1: yield (x, y-1)
+        if y < y2: yield (x, y+1)
 
     # use dijkstras algorithm to find the shortest dividing path
     # dummy start point
     end_x = int(bl[-1][0])
+    assert end_x == int(tl[-1][0]) and end_x == int(bl[-1][0])
 
     # adjust the constant factor for different cutting behaviours
     def dist_fn(p1,p2):
@@ -94,31 +124,67 @@ def find_dividing_path(inv_binary_img: np.ndarray, cut_above, cut_below) -> List
     def H_fn(p):
         return end_x - p[0]
     #H_fn = lambda p: end_x - p[0]
-    nodeset = dict()
+    #nodeset = dict()
 
     start_point = (bl[0][0] - 1, int(abs(bl[0][1] + tl[0][1]) / 2))
-    start_elem = QueueElem(H_fn(start_point), 0, start_point, None)
-    Q: List[QueueElem] = [start_elem]
+    start_x = bl[0][0] # start_point[0] + 1
+
+    y1, y2 = tl[0][1], bl[0][1]+ 1
+    if y1 > y2: y1, y2 = y2,y1
+    source_points = [(start_x, y) for y in range(y1, y2)]
+
+    start_elem = QueueElem(0, 0, start_point, None)
+    Q: List[QueueElem] = [
+        QueueElem(d=dist_fn(start_point, p), f=dist_fn(start_point,p ) + H_fn(p),point=p,parent=start_elem)
+        for p in source_points]
+
 
     #distance = defaultdict(lambda: 2147483647)
     visited = set()
+    shortest_found_dist = defaultdict(lambda: 2147483647)
+    for elem in Q:
+        shortest_found_dist[elem.point] = elem.d
     while len(Q) > 0:
         node = heapq.heappop(Q)
         if node.point in visited: continue # if we already visited this node
         visited.add(node.point)
         if node.point[0] == end_x:
-            return make_path(node, start_elem)
-        for child in find_children(node.point, start_point[0]):
+            path = make_path(node, start_elem)
+            if False:
+                dd = DebugDraw(SourceImage.from_numpy(255*(1 - inv_binary_img)))
+                dd.draw_baselines([tl, bl, path])
+                img = dd.image()
+                global seq_number
+                img.save(f"/tmp/seq{seq_number}.png")
+                seq_number += 1
+                #dd.show()
+            return path
+        for child in find_children_rect(node.point, start_x):
             if child in visited: continue
             # calculate distance and heur
-            d = dist_fn(node.point,child) + node.d
-            h = H_fn(child)
+            p1, p2 = node.point, child
+            # not having to call a function is ~10 % faster
 
+            d = node.d + abs(p1[0] - p2[0]) + abs(p1[1] - p2[1]) + int(inv_binary_img[p2[1],p2[0]]) * 1000
+            #d = dist_fn(node.point,child) + node.d
+
+            if shortest_found_dist[child] <= d:
+                continue  # we already found it
+
+            """
             found = nodeset.get(child)
             if found is None:
                 nodeset[child] = child
             else:
                 child = found
+            """
+
+            # is this path to this node shorter?
+            shortest_found_dist[child] = d
+
+
+            #h = H_fn(child)
+            h = end_x - child[0]
 
             heapq.heappush(Q, QueueElem(f=h+d, d=d, point=child, parent=node))
     logger.error("Cannot run A*")
@@ -131,6 +197,7 @@ QuadrupletElem = namedtuple("QuadruppletEleem", "bl_top tl_cur bl_cur tl_bot")
 
 CutoutElem = namedtuple("CutoutElem", "bl tc bc")
 
+
 def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionResult, bbox: BboxCluster, process_pool :multiprocessing.Pool = None) -> List[CutoutElem]:
     baselines_cont = [make_baseline_continous(bl) for bl in prediction.baselines]
     if prediction.toplines is not None:
@@ -142,7 +209,7 @@ def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionRes
     def blhash(bl):
         return json.dumps([(int(a[0]),int(a[1])) for a in bl])
     inv_binary =  1 - scaled_image.binarized()
-    calculated_tops = [np.array(x[1]).tolist() for x in get_top_of_baselines(baselines_cont,inv_binary, process_pool=process_pool)]
+    calculated_tops = [np.array(x[1]).tolist() for x in get_top_of_baselines(baselines_cont,inv_binary, process_pool=None)]
 
     #with PerformanceCounter("Hashing"):
     bl_to_idx = dict((blhash(bl), i) for (i, bl) in enumerate(baselines_cont))
@@ -242,10 +309,7 @@ def cutout_to_polygon(cutout, scaled_image):
     def draw_bls(bls):
         dd = DebugDraw(scaled_image)
         dd.draw_baselines(bls)
-
-        from matplotlib import pyplot
-        pyplot.imshow(SourceImage(dd.image()).array())
-        pyplot.show()
+        dd.show()
 
     bl, tc, bc = cutout
     tc = [x for x in tc if x[0] >= bl[0][0] and x[0] <= bl[-1][0]]
