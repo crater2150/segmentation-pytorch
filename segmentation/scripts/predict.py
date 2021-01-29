@@ -148,6 +148,7 @@ def parse_args():
     parser.add_argument("--print_xml", action="store_true", help="Print XML to stdout")
     parser.add_argument("--export_path", type=str, default=None, help="Export Predictions as JSON to given path")
     parser.add_argument("--simplified_xml", action="store_true", help="Output simplified PageXML for LAREX")
+    parser.add_argument("--schnipschnip", action="store_true", help="Use SchnipSchnip Algorithm to cut Regions into lines")
 
     return parser.parse_args()
 
@@ -184,22 +185,12 @@ def main():
             scale_factor = prediction.prediction_scale_factor
 
             layout_settings = LayoutProcessingSettings(marginalia_postprocessing=args.marginalia_postprocessing,
-                                                       source_scale=True, lines_only=not args.layout_prediction)
-
-
+                                                       source_scale=True, lines_only=not args.layout_prediction, 
+                                                       schnip_schnip=args.schnipschnip)
 
             analyzed_content = process_layout(prediction, scaled_image,process_pool,layout_settings)
 
             #layout_debugging(args, analyzed_content, scaled_image, file)
-            if args.layout_prediction:
-                bbox: BboxCluster
-                analyzed_content.regions = []
-                with PerformanceCounter("SchnipSchnip"):
-                    for bbox in analyzed_content.bboxs:
-                        cutouts = schnip_schnip_algorithm(scaled_image,prediction,bbox,process_pool)
-                        lines = [cutout_to_polygon(co,scaled_image) for co in cutouts]
-                        reg = AnalyzedRegion(bbox, [co.bl for co in cutouts],lines,cutouts)
-                        analyzed_content.regions.append(reg)
 
             # convert this back to the original image space
             analyzed_content = analyzed_content.to_pagexml_space(scale_factor)

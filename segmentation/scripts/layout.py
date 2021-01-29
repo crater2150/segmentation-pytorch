@@ -9,6 +9,7 @@ from segmentation.gui.xml_util import TextRegion, BaseLine, TextLine, XMLGenerat
 from segmentation.postprocessing.data_classes import PredictionResult, BboxCluster
 from segmentation.postprocessing.debug_draw import DebugDraw
 from segmentation.postprocessing.layout_analysis import get_top_of_baselines_improved, analyse, connect_bounding_box
+from segmentation.postprocessing.layout_line_segment import schnip_schnip_algorithm, cutout_to_polygon
 from segmentation.preprocessing.source_image import SourceImage
 from segmentation.postprocessing.baselines_util import scale_baseline, make_baseline_continous, simplify_baseline
 from segmentation.util import PerformanceCounter
@@ -39,6 +40,7 @@ class LayoutProcessingSettings(NamedTuple):
     source_scale: bool = True  # use same scale as prediction
     # rescale_area: int = 0 # If this is given, rescale to given area
     lines_only: bool = False
+    schnip_schnip: bool = False
 
 
 # this structure should contain the finished content information of the page in PageXML coordinate space
@@ -153,7 +155,17 @@ def process_layout(prediction, scaled_image: SourceImage, process_pool, settings
     if settings.lines_only:
         return AnalyzedContent(baselines=prediction.baselines, lines_polygons=generate_lines_polygons(prediction, scaled_image, process_pool))
     else:
-        return AnalyzedContent(baselines=prediction.baselines, bboxs=complex_layout(prediction, scaled_image, settings, process_pool))
+        analyzed_content = AnalyzedContent(baselines=prediction.baselines, bboxs=complex_layout(prediction, scaled_image, settings, process_pool))
+        if settings.schnip_schnip:
+            bbox: BboxCluster
+            analyzed_content.regions = []
+            with PerformanceCounter("SchnipSchnip"):
+                for bbox in analyzed_content.bboxs:
+                    cutouts = schnip_schnip_algorithm(scaled_image, prediction, bbox, process_pool)
+                    lines = [cutout_to_polygon(co, scaled_image) for co in cutouts]
+                    reg = AnalyzedRegion(bbox, [co.bl for co in cutouts], lines, cutouts)
+                    analyzed_content.regions.append(reg)
+        return analyzed_content
 
 
 def layout_debugging(args, analyzed_content, source_image, image_filename):
@@ -191,13 +203,11 @@ def layout_debugging(args, analyzed_content, source_image, image_filename):
             pyplot.imshow(SourceImage(debug_draw.image()).array())
             pyplot.show()
 
+
 def main():
     args = parse_args()
-    process_pool = multiprocessing.Pool()
-
 
     if args.layout_prediction:
-
         bboxs = [x.scale(1 / scale_factor) for x in bboxs]
         if args.show_layout:
             debug_draw.draw_bboxs(bboxs)
