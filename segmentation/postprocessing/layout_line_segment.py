@@ -2,19 +2,31 @@ import ctypes
 import itertools
 import json
 import multiprocessing
+from dataclasses import dataclass
+from functools import reduce
+
 import multiprocessing.sharedctypes
 
 from collections import namedtuple, defaultdict, deque
-from typing import List, Tuple
+from typing import List, Tuple, Set
 import heapq
 
 from segmentation.postprocessing.baselines_util import make_baseline_continous, simplify_baseline
 from segmentation.postprocessing.data_classes import PredictionResult, BaselineResult, BboxCluster
 from segmentation.postprocessing.debug_draw import DebugDraw
 from segmentation.postprocessing.layout_analysis import get_top_of_baselines_improved, get_top, get_top_of_baselines
+from segmentation.postprocessing.util import show_images, NewImageReconstructor
 from segmentation.preprocessing.source_image import SourceImage
 
 import numpy as np
+import scipy
+import scipy.ndimage.measurements
+from scipy.spatial import ConvexHull
+
+import skimage.draw
+from shapely.geometry import Polygon
+from shapely.ops import unary_union
+
 
 # find a path that divides the two baselines
 from segmentation.util import PerformanceCounter, logger
@@ -191,12 +203,19 @@ def find_dividing_path(inv_binary_img: np.ndarray, cut_above, cut_below) -> List
     logger.error(f"Cut above: {cut_above}")
     logger.error(f"Cut below: {cut_below}")
 
-    raise RuntimeError("Unreachable")
+    # raise RuntimeError("Unreachable")
+    # Just use the middle line, to avoid crashing
+    logger.error("Using fill path to avoid crashing")
+    fill_path = []
+    for pa, pb in zip(cut_above, cut_below):
+        fill_path.append((pa[0],round((pa[1] + pb[1]) / 2)))
+    return fill_path
+
+
 
 QuadrupletElem = namedtuple("QuadruppletEleem", "bl_top tl_cur bl_cur tl_bot")
 
 CutoutElem = namedtuple("CutoutElem", "bl tc bc")
-
 
 def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionResult, bbox: BboxCluster, process_pool :multiprocessing.Pool = None) -> List[CutoutElem]:
     baselines_cont = [make_baseline_continous(bl) for bl in prediction.baselines]
@@ -304,8 +323,7 @@ def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionRes
 
     return bl_cutouts
 
-
-def cutout_to_polygon(cutout, scaled_image):
+def cutout_to_polygon(cutout: CutoutElem, scaled_image: SourceImage) -> List:
     def draw_bls(bls):
         dd = DebugDraw(scaled_image)
         dd.draw_baselines(bls)
@@ -323,6 +341,177 @@ def cutout_to_polygon(cutout, scaled_image):
     return poly
 
 
+@dataclass
+class LinePoly:
+    __slots__ = ["poly", "cutout"]
+    poly: List
+    cutout: CutoutElem
+
+@dataclass
+class BBox:
+    __slots__ = ["x1", "y1", "x2", "y2"]
+    x1: int
+    y1: int
+    x2: int
+    y2: int
+
+@dataclass
+class Contour:
+    __slots__ = ["label", "bbox", "height", "width"]
+    label: int
+    bbox: BBox
+    height: int
+    width: int
+
+
+class PageContours:
+    def __init__(self, image: SourceImage):
+        self.binarized = image.binarized() == 0
+        labled, count = scipy.ndimage.measurements.label(self.binarized,np.array([[1,1,1]]*3)) # 8 connectivity
+        self.labeled = labled
+        self.count = int(count)
+
+        objs = scipy.ndimage.measurements.find_objects(labled)
+        contours = [Contour(0,BBox(0,0,0,0),0,0)] # Background
+        for label, (ys,xs) in enumerate(objs, start=1):
+            bbox = BBox(x1=int(xs.start), y1=int(ys.start), x2=int(xs.stop), y2=int(ys.stop)) # TODO: stop + 1?
+            contours.append(Contour(label,bbox,bbox.y2 - bbox.y1, bbox.x2 - bbox.x1))
+        self.contours = contours
+
+    def __iter__(self):
+        return iter(self.contours)
+
+    def __len__(self):
+        return len(self.contours)
+
+    def __getitem__(self, item) -> Contour:
+        return self.contours.__getitem__(item)
+
+    def get_labeled_slice_for_contour(self, label: int) -> np.ndarray:
+        cc = self[label]
+        bb = cc.bbox
+        return self.labeled[bb.y1 : bb.y2, bb.x1 : bb.x2]
+
+
+
+IntersectionResult = namedtuple("IntersectionResult", "line_id label")
+
+LineSegment = namedtuple("LineSegment", "x1 y1 x2 y2")
+
+
+def find_intersecting_labels(lines: List[LineSegment], contours: PageContours) -> List[int]:
+    # create a new image and put the
+    intersections = []
+    for li, l in enumerate(lines):
+        intersects = contours.labeled[skimage.draw.line(l.y1, l.x1, l.y2, l.x1)]
+        intersections.extend(int(i) for i in intersects if i > 0)
+
+    return intersections
+
+"""def find_intersecting_labels(l: LineSegment, contours:PageContours):
+    intersects = contours.labeled[skimage.draw.line(l.y1, l.x1, l.y2, l.x1)]
+    return set(int(i) for i in intersects)
+"""
+
+def cutout_get_matched_pairs(cutout: CutoutElem):
+    top_lku = dict(cutout.tc)
+    bot_lku = dict(cutout.bc)
+
+    x_intersect = sorted(list(set(top_lku.keys()).intersection(set(bot_lku.keys()))))
+    return [(x, top_lku[x], bot_lku[x]) for x in x_intersect]
+
+def cutout_average_height(trips: List[Tuple]) -> float:
+    if len(trips) == 0:
+        return 1
+    sum_h = sum(abs(x[2] - x[1]) for x in trips)
+    return sum_h / len(trips)
+
+def get_contour_convex(relevant: List[int], contours: PageContours) -> List[Tuple]:
+    points = []
+    for cc in relevant:
+        slc = contours.get_labeled_slice_for_contour(cc)
+        contour = contours[cc]
+        arr_y, arr_x = (slc == cc).nonzero()
+        arr_y += contour.bbox.y1
+        arr_x += contour.bbox.x1
+        points.extend(zip(arr_x.tolist(),arr_y.tolist()))
+    hull = ConvexHull(points)
+    poly = list(points[i] for i in hull.vertices)
+    return poly
+
+
+def fix_coutout_lineendings(cutout: CutoutElem, contours: PageContours) -> LinePoly:
+    try: # TODO: bad hgack
+        beg_lines = [LineSegment(cutout.bc[0][0],cutout.bc[0][1],cutout.bl[0][0],cutout.bl[0][1]),
+                     LineSegment(cutout.bl[0][0], cutout.bl[0][1], cutout.tc[0][0], cutout.tc[0][1])]
+        end_lines = [LineSegment(cutout.bc[-1][0], cutout.bc[-1][1], cutout.bl[-1][0], cutout.bl[-1][1]),
+                     LineSegment(cutout.bl[-1][0], cutout.bl[-1][1], cutout.tc[-1][0], cutout.tc[-1][1])]
+        int_labels_beg = find_intersecting_labels(beg_lines, contours)
+        int_labels_end = find_intersecting_labels(end_lines, contours)
+
+        # if the label is approximately the height of the line
+        accepted_labels_beg = []
+        accepted_labels_end = []
+        # calculate average cutout height
+        avg_line_height = cutout_average_height(cutout_get_matched_pairs(cutout))
+
+        accepted_labels_beg = []
+        int_labels_beg = list(set(int_labels_beg))
+        int_labels_end = list(set(int_labels_end))
+        for cc in map(lambda x: contours[x], int_labels_beg):
+            if cc.height <= avg_line_height * 1.1 and \
+              cc.bbox.y2 >= cutout.bl[0][0] - (avg_line_height / 2):
+
+                #logger.info(f"Accepted: {contours[be]} (al {avg_line_height}")
+                accepted_labels_beg.append(cc.label)
+        for cc in map(lambda x: contours[x], int_labels_end):
+            if cc.height <= avg_line_height * 1.1 and \
+              cc.bbox.y2 >= cutout.bl[-1][0] - (avg_line_height / 2):
+
+                #logger.info(f"Accepted: {contours[be]} (al {avg_line_height}")
+                accepted_labels_end.append(cc.label)
+
+        cutout_poly = cutout_to_polygon(cutout, None)
+
+        if len(accepted_labels_end) == 0 and len(accepted_labels_beg) == 0:
+            return LinePoly(cutout_poly, cutout)
+
+        pll = [Polygon(cutout_poly)]
+        if len(accepted_labels_beg) > 0:
+            ch_beg = get_contour_convex(list(set(accepted_labels_beg)), contours)
+            pll.append(Polygon(ch_beg).buffer(1,cap_style=2,join_style=3))
+        if len(accepted_labels_end) > 0:
+            ch_end = get_contour_convex(list(set(accepted_labels_end)), contours)
+            pll.append(Polygon(ch_end).buffer(1,cap_style=2,join_style=3))
+
+        poly_union = unary_union(pll)
+        if poly_union.geom_type != "Polygon":
+            logger.warning(f"Result is not a polygon. Is: {poly_union.geom_type}")
+            return LinePoly(cutout_poly, cutout)
+        points = [(round(x[0]), round(x[1])) for x in poly_union.exterior.coords]
+        """
+        x,y = poly_union.exterior.xy
+        rec = NewImageReconstructor(contours.labeled, contours.count + 1, background_color=(255, 255, 255),
+                                    undefined_color=(0, 0, 0))
+        for lbl in itertools.chain(int_labels_beg, int_labels_end):
+            if lbl in set(accepted_labels_beg).union(set(accepted_labels_end)):
+                rec.label(lbl, (50, 0, 0))
+            else:
+                rec.label(lbl, (0, 0, 100))
+    
+        
+        from matplotlib import pyplot as plt
+        plt.imshow(rec.get_image())
+        plt.plot(x,y,color='#ff3333', alpha=1, linewidth=3, solid_capstyle='round')
+        cx, cy = [x[0] for x in cutout_poly], [x[1] for x in cutout_poly]
+        cx.append(cx[0])
+        cy.append(cy[0])
+        plt.plot(cx, cy, color="#6699cc", alpha=1, linewidth=3)
+        plt.show()
+        """
+        return LinePoly(points, cutout)
+    except:
+        return LinePoly(cutout_to_polygon(cutout, None), cutout)
 
 
 

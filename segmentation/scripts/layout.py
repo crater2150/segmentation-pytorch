@@ -1,4 +1,5 @@
 import argparse
+import glob
 import multiprocessing
 import os
 from dataclasses import dataclass
@@ -9,7 +10,8 @@ from segmentation.gui.xml_util import TextRegion, BaseLine, TextLine, XMLGenerat
 from segmentation.postprocessing.data_classes import PredictionResult, BboxCluster
 from segmentation.postprocessing.debug_draw import DebugDraw
 from segmentation.postprocessing.layout_analysis import get_top_of_baselines_improved, analyse, connect_bounding_box
-from segmentation.postprocessing.layout_line_segment import schnip_schnip_algorithm, cutout_to_polygon
+from segmentation.postprocessing.layout_line_segment import schnip_schnip_algorithm, cutout_to_polygon, PageContours, \
+    fix_coutout_lineendings, LinePoly
 from segmentation.preprocessing.source_image import SourceImage
 from segmentation.postprocessing.baselines_util import scale_baseline, make_baseline_continous, simplify_baseline
 from segmentation.util import PerformanceCounter
@@ -17,10 +19,9 @@ from segmentation.util import PerformanceCounter
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--prediction", type=str, nargs="*", default=[],
-                        help="Load the prediction")
-    parser.add_argument("--image", type=str, help="Override the source image (only works with one prediciton",
-                        default=None)
+    parser.add_argument("--prediction", type=str, required=True, help="Load the prediction")
+    parser.add_argument("--image_path", type=str, help="Override the source image (only works with one prediciton",
+                        required=True)
 
     parser.add_argument("--processes", type=int, default=8)
     parser.add_argument("--improved_top_detection", action="store_true", help="Use improved baseline top detection")
@@ -31,7 +32,13 @@ def parse_args():
     parser.add_argument("--show_lines", action="store_true", help="Draws line polygons to the debug image")
     parser.add_argument("--show_layout", action="store_true", help="Draws layout regions to the debug image")
     parser.add_argument("--lines_only", action="store_true", help="Only do simple line heuristic")
-
+    parser.add_argument("--schnipschnip", action="store_true", help="Use SchnipSchnip Alg") # use the schnipschnip algorithm
+    parser.add_argument("--print_xml", action="store_true", help="Print XML to stdout Files")
+    parser.add_argument("--simplified_xml", action="store_true", help="Write simplified XML")
+    parser.add_argument("--output_xml", action="store_true", help="Outputs Xml Files")
+    parser.add_argument("--output_xml_path", type=str, default=None, help="Directory of the XML output")
+    parser.add_argument("--layout_prediction", action="store_true", help="Generates Layout of the page "
+                                                                         "based on the baselines")
     return parser.parse_args()
 
 
@@ -41,6 +48,14 @@ class LayoutProcessingSettings(NamedTuple):
     # rescale_area: int = 0 # If this is given, rescale to given area
     lines_only: bool = False
     schnip_schnip: bool = False
+    fix_line_endings: bool = True
+    debug_show_fix_line_endings: bool = False
+
+    @staticmethod
+    def from_cmdline_args(args):
+        return LayoutProcessingSettings(marginalia_postprocessing=args.marginalia_postprocessing,
+                                                   source_scale=True, lines_only=not args.layout_prediction,
+                                                   schnip_schnip=args.schnipschnip)
 
 
 # this structure should contain the finished content information of the page in PageXML coordinate space
@@ -53,7 +68,7 @@ class AnalyzedRegion:
 
     def scale(self, scale_factor:float = 1):
         baselines = [scale_baseline(bl, scale_factor) for bl in self.baselines]
-        lines_polygons = [scale_baseline(lp, scale_factor) for lp in self.lines_polygons]
+        lines_polygons = [scale_baseline(lp.poly, scale_factor) for lp in self.lines_polygons]
         bbx = self.bbox.scale(scale_factor)
         return AnalyzedRegion(bbox=bbx, baselines=baselines, lines_polygons=lines_polygons, cutouts=None) # todo scale cutouts
 
@@ -159,12 +174,36 @@ def process_layout(prediction, scaled_image: SourceImage, process_pool, settings
         if settings.schnip_schnip:
             bbox: BboxCluster
             analyzed_content.regions = []
+            all_lines: List[LinePoly] = []
+
             with PerformanceCounter("SchnipSchnip"):
                 for bbox in analyzed_content.bboxs:
                     cutouts = schnip_schnip_algorithm(scaled_image, prediction, bbox, process_pool)
-                    lines = [cutout_to_polygon(co, scaled_image) for co in cutouts]
-                    reg = AnalyzedRegion(bbox, [co.bl for co in cutouts], lines, cutouts)
+                    if settings.fix_line_endings:
+                        contours = PageContours(scaled_image)
+                        lines = [fix_coutout_lineendings(co,contours) for co in cutouts]
+                    else:
+                        cutout_polys = [cutout_to_polygon(co, scaled_image) for co in cutouts]
+                        lines = [LinePoly(poly, co) for poly,co in zip(cutout_polys, cutouts)]
+                    all_lines.extend(lines)
+
+                    reg = AnalyzedRegion(bbox, [simplify_baseline(co.bl) for co in cutouts], lines, cutouts)
                     analyzed_content.regions.append(reg)
+
+                if settings.debug_show_fix_line_endings:
+                    from matplotlib import pyplot as plt
+                    plt.imshow(scaled_image.binarized())
+                    for poly in all_lines:
+                        x, y = [x[0] for x in poly.poly], [x[1] for x in poly.poly]
+                        x.append(x[0])
+                        y.append(y[0])
+                        plt.plot(x, y, color='#ff3333', alpha=1, linewidth=3, solid_capstyle='round')
+                        cutout_poly = cutout_to_polygon(poly.cutout, None)
+                        cx, cy = [x[0] for x in cutout_poly], [x[1] for x in cutout_poly]
+                        cx.append(cx[0])
+                        cy.append(cy[0])
+                        plt.plot(cx, cy, color="#6699cc", alpha=1, linewidth=3)
+                    plt.show()
         return analyzed_content
 
 
@@ -207,78 +246,40 @@ def layout_debugging(args, analyzed_content, source_image, image_filename):
 def main():
     args = parse_args()
 
-    if args.layout_prediction:
-        bboxs = [x.scale(1 / scale_factor) for x in bboxs]
-        if args.show_layout:
-            debug_draw.draw_bboxs(bboxs)
-    else:
-        bboxs = None
 
-    baselines = [scale_baseline(bl, 1 / scale_factor) for bl in baselines]
-    baselines = list(map(make_baseline_continous, baselines))
-
-    if args.show_baselines:
-        debug_draw.draw_baselines(baselines)
-    if args.show_lines:
-        baseline_tops = get_top_of_baselines_improved(baselines, 1 - source_image.binarized())
-        # draw the polygons as well
-        polys = []
-        for bl, bl_top, _ in baseline_tops:
-            bl = simplify_baseline(bl)
-            bl_top = simplify_baseline(bl_top)
-            text_region_coord = bl + list(reversed(bl_top))
-            polys.append(text_region_coord)
-        debug_draw.draw_polygons(polys)
-
-    if args.output_path_debug_images:
-        basename = "debug_" + os.path.basename(file)
-        file_path = os.path.join(args.output_path_debug_images, basename)
-        debug_draw.image().save(file_path)
-
-    if args.print_xml or (args.output_xml is not None and args.output_xml_path is not None):
-        from segmentation.gui.xml_util import TextRegion, BaseLine, TextLine, XMLGenerator
-
-        regions = []
-
-        if bboxs is not None:
-            # Layout segmentation is done, save baselines inside the regions
-            for box in bboxs:
-                text_lines = []
-                for b_line in box.baselines:
-                    text_region_coord = b_line.baseline + list(reversed(
-                        [(x, y - b_line.height) for x, y in b_line.baseline]))
-                    text_lines.append(TextLine(coords=text_region_coord,
-                                               baseline=BaseLine(simplify_baseline(b_line.baseline))))
-                regions.append(TextRegion(text_lines, coords=box.bbox))
-
-        elif baselines is not None:
-            # no layout segmentation is done, create text regions for each baseline
-            text_lines = []
-            with PerformanceCounter("GetTopImproved"):
-                baseline_tops = get_top_of_baselines_improved(baselines, 1 - source_image.binarized())
-
-            for bl, bl_top, _ in baseline_tops:
-                bl = simplify_baseline(bl)
-                bl_top = simplify_baseline(bl_top)
-                text_region_coord = bl + list(reversed(bl_top))
-                text_lines.append(TextLine(coords=text_region_coord, baseline=BaseLine(bl)))
-            w, h = source_image.array().shape[1], source_image.array().shape[0]
-            regions.append(TextRegion(text_lines, coords=[(0, 0), (w, 0), (w, h), (0, h)]))
-
-        xml_gen = XMLGenerator(source_image.pil_image.size[0], source_image.pil_image.size[1],
-                               os.path.basename(file), regions=regions)
-        if args.print_xml:
-            print(xml_gen.baselines_to_xml_string())
-        else:
-            xml_gen.save_textregions_as_xml(args.output_xml_path)
-
-    if args.debug:
-        from matplotlib import pyplot
-
-        pyplot.imshow(SourceImage(debug_draw.image()).array())
-        pyplot.show()
+    with multiprocessing.Pool() as process_pool:
+        for pred_file in sorted(glob.glob(args.prediction)):
+            with open(pred_file) as f:
+                prediction = PredictionResult.from_json(f.read())
+            # find the image file
+            img_filename = os.path.join(args.image_path, os.path.basename(pred_file).split(".")[0] + ".png")
+            source_image = SourceImage.load(img_filename)
+            # correctly scale it
+            scaled_image = source_image.scaled(prediction.prediction_scale_factor)
+            scale_factor = prediction.prediction_scale_factor
 
 
+            scale_factor = prediction.prediction_scale_factor
+
+            layout_settings = LayoutProcessingSettings.from_cmdline_args(args)
+
+            analyzed_content = process_layout(prediction, scaled_image, process_pool, layout_settings)
+
+            # layout_debugging(args, analyzed_content, scaled_image, file)
+
+            # convert this back to the original image space
+            analyzed_content = analyzed_content.to_pagexml_space(scale_factor)
+
+            # debugging
+
+            layout_debugging(args, analyzed_content, source_image, img_filename)
+
+            if args.print_xml or (args.output_xml is not None and args.output_xml_path is not None):
+                xml_gen = analyzed_content.export(source_image, img_filename, simplified_xml=args.simplified_xml)
+                if args.print_xml:
+                    print(xml_gen.baselines_to_xml_string())
+                else:
+                    xml_gen.save_textregions_as_xml(args.output_xml_path)
 
 if __name__ == "__main__":
     main()

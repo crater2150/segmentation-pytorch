@@ -82,9 +82,9 @@ class BboxCluster():
 @dataclasses_json.dataclass_json
 @dataclass
 class PredictionResult:
-    baselines: List
-    prediction_resolution: List
+    baselines: List[Tuple[int, int]]
+    prediction_resolution: List[int]
     prediction_scale_factor: float = None
-    toplines: List = None
-    matching: List[List[List]] = None  # this could possible be an n to n relation
-    source_image: str = None
+    toplines: List[Tuple[int, int]] = None
+    #matching: List[List[List]] = None  # this could possible be an n to n relation
+    #source_image: str = None

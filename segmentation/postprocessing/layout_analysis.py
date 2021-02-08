@@ -5,7 +5,6 @@ import multiprocessing
 from functools import partial
 from typing import List, NamedTuple
 from segmentation.postprocessing.data_classes import BboxCluster, BaselineResult
-from segmentation.network import Network
 from segmentation.postprocessing.baseline_extraction import extract_baselines_from_probability_map
 from segmentation.settings import PredictorSettings
 import numpy as np
@@ -602,6 +601,7 @@ if __name__ == '__main__':
         [glob.glob("/mnt/sshfs/scratch/Datensets_Bildverarbeitung/page_segmentation/narren/GW5049/images/*.png")]))
     for x in model_paths:
         p_setting = PredictorSettings(MODEL_PATH=x)
+        from segmentation.network import Network
         network = Network(p_setting)
         networks.append(network)
     ensemble = Ensemble(networks)

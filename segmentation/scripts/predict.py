@@ -184,9 +184,7 @@ def main():
 
             scale_factor = prediction.prediction_scale_factor
 
-            layout_settings = LayoutProcessingSettings(marginalia_postprocessing=args.marginalia_postprocessing,
-                                                       source_scale=True, lines_only=not args.layout_prediction, 
-                                                       schnip_schnip=args.schnipschnip)
+            layout_settings = LayoutProcessingSettings.from_cmdline_args(args)
 
             analyzed_content = process_layout(prediction, scaled_image,process_pool,layout_settings)
 
