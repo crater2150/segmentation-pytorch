@@ -306,10 +306,10 @@ def main():
         SourceImage.fail_on_binarize=True
 
 
-        data = zip(sorted(glob.glob(args.prediction)), itertools.repeat(args))
-        with multiprocessing.Pool() as p:
-            for _ in p.imap(mp_process,data):
-                pass
+    data = zip(sorted(glob.glob(args.prediction)), itertools.repeat(args))
+    with multiprocessing.Pool() as p:
+        for _ in p.imap(mp_process, data):
+            pass
 
 
 if __name__ == "__main__":
