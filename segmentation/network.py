@@ -460,7 +460,7 @@ class Network(object):
             import ttach as tta
             transforms = tta.Compose(
                 [
-                    tta.Scale(scales=[0.8, 1, 1.2]),
+                    tta.Scale(scales=[0.95, 1, 1.05]),
                     tta.HorizontalFlip(),
                 ]
             )
