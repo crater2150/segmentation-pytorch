@@ -280,7 +280,7 @@ def mp_process(args):
 
     layout_settings = LayoutProcessingSettings.from_cmdline_args(args)
 
-    analyzed_content = process_layout(scaled_prediction, source_image, process_pool, layout_settings)
+    analyzed_content = process_layout(scaled_prediction, source_image, None, layout_settings)
 
     # layout_debugging(args, analyzed_content, scaled_image, file)
 
@@ -308,7 +308,7 @@ def main():
 
         data = zip(sorted(glob.glob(args.prediction)), itertools.repeat(args))
         with multiprocessing.Pool() as p:
-            for _ in p.map(mp_process,data):
+            for _ in p.imap(mp_process,data):
                 pass
 
 
