@@ -5,8 +5,9 @@ from segmentation.preprocessing.ocrupus import binarize
 
 import numpy as np
 
-
 class SourceImage:
+    fail_on_binarize = False
+
     @staticmethod
     def load(filename):
         img = Image.open(filename)
@@ -36,7 +37,8 @@ class SourceImage:
 
     def binarized(self):
         if self.binarized_cache is None:
-            self.binarized_cache = binarize(self.array().astype("float64")).astype("uint8")
+            self.binarized_cache = binarize(self.array().astype("float64"),
+                                            assert_binarized=SourceImage.fail_on_binarize).astype("uint8")
         return self.binarized_cache
 
     def array(self):
@@ -46,3 +48,5 @@ class SourceImage:
 
     def is_rescaled(self):
         return self.scale_factor != 1
+
+

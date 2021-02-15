@@ -82,7 +82,7 @@ class BboxCluster():
 @dataclasses_json.dataclass_json
 @dataclass
 class PredictionResult:
-    baselines: List[Tuple[int, int]]
+    baselines: List[List[Tuple[int, int]]]
     prediction_resolution: List[int]
     prediction_scale_factor: float = None
     toplines: List[Tuple[int, int]] = None

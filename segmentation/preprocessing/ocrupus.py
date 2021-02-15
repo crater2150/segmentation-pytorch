@@ -5,7 +5,6 @@ import scipy.stats as stats
 
 from segmentation.util import logger
 
-
 def estimate_skew(flat, bignore=0.1, maxskew=2, skewsteps=8):
     """ estimate skew angle and rotate"""
     d0, d1 = flat.shape
@@ -88,7 +87,7 @@ def normalize_raw_image(raw):
     return image
 
 
-def binarize(image):
+def binarize(image, assert_binarized=False):
     if len(image.shape) == 3:
         if image.shape[2] == 1:
             image = image[:, :, 0]
@@ -99,6 +98,9 @@ def binarize(image):
     # check if the image is already binarized
     if not np.any(np.logical_and(image > 0, image < 255)):
         return image > 0
+    elif assert_binarized:
+        raise AssertionError("Image should already be binarized")
+
     image = normalize_raw_image(image)
     extreme = (
             (np.sum(image < 0.05) + np.sum(image > 0.95)) * 1.0 / np.prod(image.shape)

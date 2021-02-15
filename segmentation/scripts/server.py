@@ -5,8 +5,7 @@ import warnings
 from segmentation.postprocessing.data_classes import PredictionResult
 from segmentation.preprocessing.source_image import SourceImage
 from segmentation.scripts.layout import process_layout, LayoutProcessingSettings
-from flask import Flask
-from flask import request
+from flask import Flask, request
 
 app = Flask("segmentation server")
 

@@ -3,6 +3,7 @@ import itertools
 import json
 import multiprocessing
 from dataclasses import dataclass
+from enum import Enum
 from functools import reduce
 
 import multiprocessing.sharedctypes
@@ -76,11 +77,18 @@ def make_path(target_node:QueueElem, start_node: QueueElem) -> List:
     while node != start_node:
         #print(node.f, node.d, node.point)
         path_reversed.append(node.point)
+        # if we are on home position, no need to move vertically
+        if node.point[0] == start_node.point[0] + 1:
+            break
         node = node.parent
     return list(reversed(path_reversed))
 
+class DividingPathStartingBias(Enum):
+    MID = 0
+    TOP = 1
+    BOTTOM = 2
 
-def find_dividing_path(inv_binary_img: np.ndarray, cut_above, cut_below) -> List:
+def find_dividing_path(inv_binary_img: np.ndarray, cut_above, cut_below, starting_bias = DividingPathStartingBias.MID) -> List:
     # assert, that both cut_baseline is a list of lists and cut_topline is also a list of lists
 
     tl, bl = extend_baselines(cut_above, cut_below)
@@ -117,12 +125,12 @@ def find_dividing_path(inv_binary_img: np.ndarray, cut_above, cut_below) -> List
         xi = x - x_start
         y1, y2 = tl[xi][1], bl[xi][1]  # TODO: shouldn't this be +1 ?
         # if y1 > y2: y1, y2 = y2, y1
-        if tl[xi+1][1] <= y <= bl[xi+1][1]: yield (x+1,y)
+        # if tl[xi+1][1] <= y <= bl[xi+1][1]: yield (x+1,y)
         if tl[xi + 1][1] <= y <= bl[xi + 1][1]: yield (x + 1, y)
         if y > y1: yield (x, y-1)
         if y < y2: yield (x, y+1)
 
-    # use dijkstras algorithm to find the shortest dividing path
+    # use Dijkstra's algorithm to find the shortest dividing path
     # dummy start point
     end_x = int(bl[-1][0])
     assert end_x == int(tl[-1][0]) and end_x == int(bl[-1][0])
@@ -137,8 +145,14 @@ def find_dividing_path(inv_binary_img: np.ndarray, cut_above, cut_below) -> List
         return end_x - p[0]
     #H_fn = lambda p: end_x - p[0]
     #nodeset = dict()
-
-    start_point = (bl[0][0] - 1, int(abs(bl[0][1] + tl[0][1]) / 2))
+    if starting_bias == DividingPathStartingBias.MID:
+        start_point = (bl[0][0] - 1, int(abs(bl[0][1] + tl[0][1]) / 2))
+    elif starting_bias == DividingPathStartingBias.TOP:
+        start_point = (bl[0][0] - 1, tl[0][1] + 1)
+    elif starting_bias == DividingPathStartingBias.BOTTOM:
+        start_point = (bl[0][0] - 1, bl[0][1] - 1)
+    else:
+        raise NotImplementedError()
     start_x = bl[0][0] # start_point[0] + 1
 
     y1, y2 = tl[0][1], bl[0][1]+ 1
@@ -146,10 +160,10 @@ def find_dividing_path(inv_binary_img: np.ndarray, cut_above, cut_below) -> List
     source_points = [(start_x, y) for y in range(y1, y2)]
 
     start_elem = QueueElem(0, 0, start_point, None)
-    Q: List[QueueElem] = [
-        QueueElem(d=dist_fn(start_point, p), f=dist_fn(start_point,p ) + H_fn(p),point=p,parent=start_elem)
-        for p in source_points]
+    Q: List[QueueElem] = []
 
+    for p in source_points:
+        heapq.heappush(Q,QueueElem(d=dist_fn(start_point, p), f=dist_fn(start_point,p ) + H_fn(p),point=p,parent=start_elem))
 
     #distance = defaultdict(lambda: 2147483647)
     visited = set()
@@ -228,6 +242,7 @@ def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionRes
     def blhash(bl):
         return json.dumps([(int(a[0]),int(a[1])) for a in bl])
     inv_binary =  1 - scaled_image.binarized()
+    inv_binary_dilated = scipy.ndimage.binary_dilation(inv_binary)
     calculated_tops = [np.array(x[1]).tolist() for x in get_top_of_baselines(baselines_cont,inv_binary, process_pool=None)]
 
     #with PerformanceCounter("Hashing"):
@@ -266,7 +281,7 @@ def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionRes
     # doing MP here is probably not faster
     for pt, pb in zip(pairs, pairs[1:]):
         # draw_bls([pt[0],pb[1]])
-        cuts.append(find_dividing_path(inv_binary,pt[0], pb[1]))
+        cuts.append(find_dividing_path(inv_binary_dilated,pt[0], pb[1]))
         # draw_bls([pt[0], pb[1], cuts[-1]])
     for pair, tc, bc in zip(pairs[1:], cuts, cuts[1:]):
         bl_cutouts.append(CutoutElem(bl=pair[0], tc=tc, bc=bc))
@@ -303,12 +318,16 @@ def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionRes
 
     # fix first line
     height_diff = calculate_height_diff(pairs[0][0], pairs[0][1])
-    first_tc = find_dividing_path(inv_binary, moveline(pairs[0][0], (-2)*height_diff, int(inv_binary.shape[0])), pairs[0][1])
+    first_tc = find_dividing_path(inv_binary_dilated,
+                                  moveline(pairs[0][0], (-2)*height_diff, int(inv_binary.shape[0])), pairs[0][1],
+                                  starting_bias=DividingPathStartingBias.BOTTOM)
     if len(pairs) > 1:
         #first_bc = find_dividing_path(inv_binary, pairs[0][0], pairs[1][1])
         first_bc = cuts[0]
     else:
-        first_bc = find_dividing_path(inv_binary, pairs[0][0], moveline(pairs[0][0], height_diff, int(inv_binary.shape[0])))
+        first_bc = find_dividing_path(inv_binary_dilated,
+                                      pairs[0][0], moveline(pairs[0][0], height_diff, int(inv_binary.shape[0])),
+                                      starting_bias=DividingPathStartingBias.TOP)
 
     bl_cutouts = [CutoutElem(pairs[0][0], tc=first_tc, bc=first_bc)] + bl_cutouts
 
@@ -318,7 +337,9 @@ def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionRes
         #bot_tc = find_dividing_path(inv_binary, pairs[-2][0], pairs[-1][1])
         bot_tc = cuts[-1]
         height_diff = calculate_height_diff(pairs[-1][0], pairs[-1][1])
-        bot_bc = find_dividing_path(inv_binary, pairs[-1][0], moveline(pairs[-1][0], height_diff, int(inv_binary.shape[0])))
+        bot_bc = find_dividing_path(inv_binary_dilated,
+                                    pairs[-1][0], moveline(pairs[-1][0], height_diff, int(inv_binary.shape[0])),
+                                    starting_bias=DividingPathStartingBias.TOP)
         bl_cutouts = bl_cutouts + [CutoutElem(pairs[-1][0],tc=bot_tc, bc=bot_bc)]
 
     return bl_cutouts
@@ -347,6 +368,9 @@ class LinePoly:
     poly: List
     cutout: CutoutElem
 
+    #def __iter__(self):
+    #    return iter(self.poly)
+
 @dataclass
 class BBox:
     __slots__ = ["x1", "y1", "x2", "y2"]
@@ -365,8 +389,10 @@ class Contour:
 
 
 class PageContours:
-    def __init__(self, image: SourceImage):
+    def __init__(self, image: SourceImage, dilation_amount=0):
         self.binarized = image.binarized() == 0
+        if dilation_amount > 0:
+            self.binarized = scipy.ndimage.binary_dilation(self.binarized)
         labled, count = scipy.ndimage.measurements.label(self.binarized,np.array([[1,1,1]]*3)) # 8 connectivity
         self.labeled = labled
         self.count = int(count)
@@ -441,8 +467,11 @@ def get_contour_convex(relevant: List[int], contours: PageContours) -> List[Tupl
 
 
 def fix_coutout_lineendings(cutout: CutoutElem, contours: PageContours) -> LinePoly:
+    cutout_poly = cutout_to_polygon(cutout, None)
+    fallback = LinePoly(cutout_poly, cutout)
+
     try: # TODO: bad hgack
-        beg_lines = [LineSegment(cutout.bc[0][0],cutout.bc[0][1],cutout.bl[0][0],cutout.bl[0][1]),
+        beg_lines = [LineSegment(cutout.bc[0][0], cutout.bc[0][1], cutout.bl[0][0], cutout.bl[0][1]),
                      LineSegment(cutout.bl[0][0], cutout.bl[0][1], cutout.tc[0][0], cutout.tc[0][1])]
         end_lines = [LineSegment(cutout.bc[-1][0], cutout.bc[-1][1], cutout.bl[-1][0], cutout.bl[-1][1]),
                      LineSegment(cutout.bl[-1][0], cutout.bl[-1][1], cutout.tc[-1][0], cutout.tc[-1][1])]
@@ -460,23 +489,21 @@ def fix_coutout_lineendings(cutout: CutoutElem, contours: PageContours) -> LineP
         int_labels_end = list(set(int_labels_end))
         for cc in map(lambda x: contours[x], int_labels_beg):
             if cc.height <= avg_line_height * 1.1 and \
-              cc.bbox.y2 >= cutout.bl[0][0] - (avg_line_height / 2):
-
+              cc.bbox.y2 >= cutout.bl[0][1] - (avg_line_height / 2):
                 #logger.info(f"Accepted: {contours[be]} (al {avg_line_height}")
                 accepted_labels_beg.append(cc.label)
+
         for cc in map(lambda x: contours[x], int_labels_end):
             if cc.height <= avg_line_height * 1.1 and \
-              cc.bbox.y2 >= cutout.bl[-1][0] - (avg_line_height / 2):
-
-                #logger.info(f"Accepted: {contours[be]} (al {avg_line_height}")
+              cc.bbox.y2 >= cutout.bl[-1][1] - (avg_line_height / 2):
+                #logger.info(f"Accepted end: {cc} (al {avg_line_height}")
                 accepted_labels_end.append(cc.label)
 
-        cutout_poly = cutout_to_polygon(cutout, None)
-
         if len(accepted_labels_end) == 0 and len(accepted_labels_beg) == 0:
-            return LinePoly(cutout_poly, cutout)
+            return fallback # early stopping
 
         pll = [Polygon(cutout_poly)]
+        assert pll[0].is_valid
         if len(accepted_labels_beg) > 0:
             ch_beg = get_contour_convex(list(set(accepted_labels_beg)), contours)
             pll.append(Polygon(ch_beg).buffer(1,cap_style=2,join_style=3))
@@ -487,9 +514,9 @@ def fix_coutout_lineendings(cutout: CutoutElem, contours: PageContours) -> LineP
         poly_union = unary_union(pll)
         if poly_union.geom_type != "Polygon":
             logger.warning(f"Result is not a polygon. Is: {poly_union.geom_type}")
-            return LinePoly(cutout_poly, cutout)
+            return fallback
         points = [(round(x[0]), round(x[1])) for x in poly_union.exterior.coords]
-        """
+
         x,y = poly_union.exterior.xy
         rec = NewImageReconstructor(contours.labeled, contours.count + 1, background_color=(255, 255, 255),
                                     undefined_color=(0, 0, 0))
@@ -499,7 +526,7 @@ def fix_coutout_lineendings(cutout: CutoutElem, contours: PageContours) -> LineP
             else:
                 rec.label(lbl, (0, 0, 100))
     
-        
+        """
         from matplotlib import pyplot as plt
         plt.imshow(rec.get_image())
         plt.plot(x,y,color='#ff3333', alpha=1, linewidth=3, solid_capstyle='round')
@@ -510,8 +537,9 @@ def fix_coutout_lineendings(cutout: CutoutElem, contours: PageContours) -> LineP
         plt.show()
         """
         return LinePoly(points, cutout)
+
     except:
-        return LinePoly(cutout_to_polygon(cutout, None), cutout)
+        return fallback
 
 
 

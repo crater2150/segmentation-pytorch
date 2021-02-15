@@ -9,6 +9,7 @@ def scale_baseline(baseline, scale_factor: float = 1):
 
 
 def make_baseline_continous(bl):
+    bl = sorted(bl, key=lambda x: x[0])
     # when downscaling the baseline might not be continuous
     # this method ensures, that we have a  mapping for each x-coordinate to a y-coordinate for a baseline bl
     xstart, xend = bl[0][0], bl[-1][0]

@@ -14,13 +14,12 @@ from segmentation.postprocessing.layout_line_segment import schnip_schnip_algori
     fix_coutout_lineendings, LinePoly
 from segmentation.preprocessing.source_image import SourceImage
 from segmentation.postprocessing.baselines_util import scale_baseline, make_baseline_continous, simplify_baseline
-from segmentation.util import PerformanceCounter
-
+from segmentation.util import PerformanceCounter, logger
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--prediction", type=str, required=True, help="Load the prediction")
-    parser.add_argument("--image_path", type=str, help="Override the source image (only works with one prediciton",
+    parser.add_argument("--prediction", type=str, required=True, help="Glob for .blp.json files containing the baselines")
+    parser.add_argument("--image_path", type=str, help="Path to where the image files are stored",
                         required=True)
 
     parser.add_argument("--processes", type=int, default=8)
@@ -39,6 +38,7 @@ def parse_args():
     parser.add_argument("--output_xml_path", type=str, default=None, help="Directory of the XML output")
     parser.add_argument("--layout_prediction", action="store_true", help="Generates Layout of the page "
                                                                          "based on the baselines")
+    parser.add_argument("--assert_binarized", action="store_true", help="Do not allow binarization of the image file")
     return parser.parse_args()
 
 
@@ -68,7 +68,7 @@ class AnalyzedRegion:
 
     def scale(self, scale_factor:float = 1):
         baselines = [scale_baseline(bl, scale_factor) for bl in self.baselines]
-        lines_polygons = [scale_baseline(lp.poly, scale_factor) for lp in self.lines_polygons]
+        lines_polygons = [scale_baseline(lp.poly if type(lp) is not list else lp, scale_factor) for lp in self.lines_polygons]
         bbx = self.bbox.scale(scale_factor)
         return AnalyzedRegion(bbox=bbx, baselines=baselines, lines_polygons=lines_polygons, cutouts=None) # todo scale cutouts
 
@@ -180,14 +180,14 @@ def process_layout(prediction, scaled_image: SourceImage, process_pool, settings
                 for bbox in analyzed_content.bboxs:
                     cutouts = schnip_schnip_algorithm(scaled_image, prediction, bbox, process_pool)
                     if settings.fix_line_endings:
-                        contours = PageContours(scaled_image)
+                        contours = PageContours(scaled_image, dilation_amount=1)
                         lines = [fix_coutout_lineendings(co,contours) for co in cutouts]
                     else:
                         cutout_polys = [cutout_to_polygon(co, scaled_image) for co in cutouts]
                         lines = [LinePoly(poly, co) for poly,co in zip(cutout_polys, cutouts)]
                     all_lines.extend(lines)
 
-                    reg = AnalyzedRegion(bbox, [simplify_baseline(co.bl) for co in cutouts], lines, cutouts)
+                    reg = AnalyzedRegion(bbox, [simplify_baseline(co.bl) for co in cutouts], [line.poly for line in lines], cutouts)
                     analyzed_content.regions.append(reg)
 
                 if settings.debug_show_fix_line_endings:
@@ -246,6 +246,10 @@ def layout_debugging(args, analyzed_content, source_image, image_filename):
 def main():
     args = parse_args()
 
+    if args.assert_binarized:
+        logger.warning("Assert source images are already binarized.")
+        SourceImage.fail_on_binarize=True
+
 
     with multiprocessing.Pool() as process_pool:
         for pred_file in sorted(glob.glob(args.prediction)):
@@ -254,21 +258,39 @@ def main():
             # find the image file
             img_filename = os.path.join(args.image_path, os.path.basename(pred_file).split(".")[0] + ".png")
             source_image = SourceImage.load(img_filename)
+
+            # The following process converts the Source Image to PageXML Space and
+            # calculates the layout in PageXML space
+            # When using already binarized Images, we would rather want to process the layout
+            # In image Space, in order to use
             # correctly scale it
-            scaled_image = source_image.scaled(prediction.prediction_scale_factor)
-            scale_factor = prediction.prediction_scale_factor
-
-
-            scale_factor = prediction.prediction_scale_factor
+            """
+            if prediction.prediction_scale_factor != 1:
+                logger.info(f"Using PSF: {prediction.prediction_scale_factor} for {pred_file}")
+                scaled_image = source_image.scaled(prediction.prediction_scale_factor)
+                scale_factor = prediction.prediction_scale_factor
+            elif source_image.array().shape[1] != prediction.prediction_resolution[0] or \
+                source_image.array().shape[0] != prediction.prediction_resolution[1]:
+                # determine the scale factor
+                sf = (source_image.array().shape[0] / prediction.prediction_resolution[1])
+                scaled_image = source_image.scaled(sf)
+                logger.info(f"Rescaling to: {prediction.prediction_resolution} for {pred_file}")
+            else:
+                scaled_image = source_image
+                logger.info(f"No scaling required for {pred_file}")
+            """
+            # scale the Baselines to the binarized image's size and do the processing in image space
+            scale_factor = (source_image.array().shape[0] / prediction.prediction_resolution[1])
+            scaled_prediction = PredictionResult([scale_baseline(bl, scale_factor) for bl in prediction.baselines],[source_image.array().shape[1],source_image.array().shape[0]],1)
 
             layout_settings = LayoutProcessingSettings.from_cmdline_args(args)
 
-            analyzed_content = process_layout(prediction, scaled_image, process_pool, layout_settings)
+            analyzed_content = process_layout(scaled_prediction, source_image, process_pool, layout_settings)
 
             # layout_debugging(args, analyzed_content, scaled_image, file)
 
             # convert this back to the original image space
-            analyzed_content = analyzed_content.to_pagexml_space(scale_factor)
+            #analyzed_content = analyzed_content.to_pagexml_space(scaled_image.scale_factor)
 
             # debugging
 
