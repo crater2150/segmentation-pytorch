@@ -1,5 +1,6 @@
 import argparse
 import glob
+import itertools
 import multiprocessing
 import os
 from dataclasses import dataclass
@@ -243,6 +244,60 @@ def layout_debugging(args, analyzed_content, source_image, image_filename):
             pyplot.show()
 
 
+def mp_process(args):
+    pred_file, args = args
+
+    with open(pred_file) as f:
+        prediction = PredictionResult.from_json(f.read())
+        # find the image file
+    img_filename = os.path.join(args.image_path, os.path.basename(pred_file).split(".")[0] + ".png")
+    source_image = SourceImage.load(img_filename)
+
+    # The following process converts the Source Image to PageXML Space and
+    # calculates the layout in PageXML space
+    # When using already binarized Images, we would rather want to process the layout
+    # In image Space, in order to use
+    # correctly scale it
+    """
+    if prediction.prediction_scale_factor != 1:
+        logger.info(f"Using PSF: {prediction.prediction_scale_factor} for {pred_file}")
+        scaled_image = source_image.scaled(prediction.prediction_scale_factor)
+        scale_factor = prediction.prediction_scale_factor
+    elif source_image.array().shape[1] != prediction.prediction_resolution[0] or \
+        source_image.array().shape[0] != prediction.prediction_resolution[1]:
+        # determine the scale factor
+        sf = (source_image.array().shape[0] / prediction.prediction_resolution[1])
+        scaled_image = source_image.scaled(sf)
+        logger.info(f"Rescaling to: {prediction.prediction_resolution} for {pred_file}")
+    else:
+        scaled_image = source_image
+        logger.info(f"No scaling required for {pred_file}")
+    """
+    # scale the Baselines to the binarized image's size and do the processing in image space
+    scale_factor = (source_image.array().shape[0] / prediction.prediction_resolution[1])
+    scaled_prediction = PredictionResult([scale_baseline(bl, scale_factor) for bl in prediction.baselines],
+                                         [source_image.array().shape[1], source_image.array().shape[0]], 1)
+
+    layout_settings = LayoutProcessingSettings.from_cmdline_args(args)
+
+    analyzed_content = process_layout(scaled_prediction, source_image, process_pool, layout_settings)
+
+    # layout_debugging(args, analyzed_content, scaled_image, file)
+
+    # convert this back to the original image space
+    # analyzed_content = analyzed_content.to_pagexml_space(scaled_image.scale_factor)
+
+    # debugging
+
+    layout_debugging(args, analyzed_content, source_image, img_filename)
+
+    if args.print_xml or (args.output_xml is not None and args.output_xml_path is not None):
+        xml_gen = analyzed_content.export(source_image, img_filename, simplified_xml=args.simplified_xml)
+        if args.print_xml:
+            print(xml_gen.baselines_to_xml_string())
+        else:
+            xml_gen.save_textregions_as_xml(args.output_xml_path)
+
 def main():
     args = parse_args()
 
@@ -251,57 +306,11 @@ def main():
         SourceImage.fail_on_binarize=True
 
 
-    with multiprocessing.Pool() as process_pool:
-        for pred_file in sorted(glob.glob(args.prediction)):
-            with open(pred_file) as f:
-                prediction = PredictionResult.from_json(f.read())
-            # find the image file
-            img_filename = os.path.join(args.image_path, os.path.basename(pred_file).split(".")[0] + ".png")
-            source_image = SourceImage.load(img_filename)
+        data = zip(sorted(glob.glob(args.prediction)), itertools.repeat(args))
+        with multiprocessing.Pool() as p:
+            for _ in p.map(mp_process,data):
+                pass
 
-            # The following process converts the Source Image to PageXML Space and
-            # calculates the layout in PageXML space
-            # When using already binarized Images, we would rather want to process the layout
-            # In image Space, in order to use
-            # correctly scale it
-            """
-            if prediction.prediction_scale_factor != 1:
-                logger.info(f"Using PSF: {prediction.prediction_scale_factor} for {pred_file}")
-                scaled_image = source_image.scaled(prediction.prediction_scale_factor)
-                scale_factor = prediction.prediction_scale_factor
-            elif source_image.array().shape[1] != prediction.prediction_resolution[0] or \
-                source_image.array().shape[0] != prediction.prediction_resolution[1]:
-                # determine the scale factor
-                sf = (source_image.array().shape[0] / prediction.prediction_resolution[1])
-                scaled_image = source_image.scaled(sf)
-                logger.info(f"Rescaling to: {prediction.prediction_resolution} for {pred_file}")
-            else:
-                scaled_image = source_image
-                logger.info(f"No scaling required for {pred_file}")
-            """
-            # scale the Baselines to the binarized image's size and do the processing in image space
-            scale_factor = (source_image.array().shape[0] / prediction.prediction_resolution[1])
-            scaled_prediction = PredictionResult([scale_baseline(bl, scale_factor) for bl in prediction.baselines],[source_image.array().shape[1],source_image.array().shape[0]],1)
-
-            layout_settings = LayoutProcessingSettings.from_cmdline_args(args)
-
-            analyzed_content = process_layout(scaled_prediction, source_image, process_pool, layout_settings)
-
-            # layout_debugging(args, analyzed_content, scaled_image, file)
-
-            # convert this back to the original image space
-            #analyzed_content = analyzed_content.to_pagexml_space(scaled_image.scale_factor)
-
-            # debugging
-
-            layout_debugging(args, analyzed_content, source_image, img_filename)
-
-            if args.print_xml or (args.output_xml is not None and args.output_xml_path is not None):
-                xml_gen = analyzed_content.export(source_image, img_filename, simplified_xml=args.simplified_xml)
-                if args.print_xml:
-                    print(xml_gen.baselines_to_xml_string())
-                else:
-                    xml_gen.save_textregions_as_xml(args.output_xml_path)
 
 if __name__ == "__main__":
     main()
