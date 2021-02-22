@@ -176,7 +176,7 @@ def find_dividing_path(inv_binary_img: np.ndarray, cut_above, cut_below, startin
         visited.add(node.point)
         if node.point[0] == end_x:
             path = make_path(node, start_elem)
-            if False:
+            if True:
                 dd = DebugDraw(SourceImage.from_numpy(np.array(255*(1 - inv_binary_img),dtype=np.uint8)))
                 dd.draw_baselines([tl, bl, path])
                 img = dd.image()
@@ -498,13 +498,15 @@ def fix_coutout_lineendings(cutout: CutoutElem, contours: PageContours, line_id 
         int_labels_end = list(int_labels_end)
         for cc in map(lambda x: contours[x], int_labels_beg):
             if cc.height <= avg_line_height * 1.1 and \
-              cc.bbox.y2 >= cutout.bl[0][1] - (avg_line_height / 2):
+              cc.bbox.y2 >= cutout.bl[0][1] - (avg_line_height / 2) and \
+              cc.bbox.y2 <= cutout.bc[0][1] + (avg_line_height) * 1.2:
                 logger.info(f"Accepted: {cc} for {line_id}\n")
                 accepted_labels_beg.append(cc.label)
 
         for cc in map(lambda x: contours[x], int_labels_end):
             if cc.height <= avg_line_height * 1.1 and \
-              cc.bbox.y2 >= cutout.bl[-1][1] - (avg_line_height / 2):
+              cc.bbox.y2 >= cutout.bl[-1][1] - (avg_line_height / 2) and \
+              cc.bbox.y2 <= cutout.bc[-1][1] + (avg_line_height) * 1.2:
                 logger.info(f"Accepted end: {cc} for {line_id}\n")
                 accepted_labels_end.append(cc.label)
 

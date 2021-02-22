@@ -13,7 +13,7 @@ console_logger = logging.StreamHandler()
 console_logger.setFormatter(logFormatter)
 console_logger.terminator = ""
 logger.setLevel(logging.DEBUG)
-if os.environ["SEGMENTATION_LOGLEVEL"]:
+if "SEGMENTATION_LOGLEVEL" in os.environ:
     logger.setLevel(os.environ["SEGMENTATION_LOGLEVEL"])
 logger.addHandler(console_logger)
 
