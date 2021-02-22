@@ -40,6 +40,8 @@ def parse_args():
     parser.add_argument("--layout_prediction", action="store_true", help="Generates Layout of the page "
                                                                          "based on the baselines")
     parser.add_argument("--assert_binarized", action="store_true", help="Do not allow binarization of the image file")
+    parser.add_argument("--output_path_debug_images", type=str, default=None, help="Directory of the debug images")
+    parser.add_argument("--show_fix_line_endings", action="store_true", help="Show debug information for the line endings fix")
     return parser.parse_args()
 
 
@@ -56,7 +58,7 @@ class LayoutProcessingSettings(NamedTuple):
     def from_cmdline_args(args):
         return LayoutProcessingSettings(marginalia_postprocessing=args.marginalia_postprocessing,
                                                    source_scale=True, lines_only=not args.layout_prediction,
-                                                   schnip_schnip=args.schnipschnip)
+                                                   schnip_schnip=args.schnipschnip, debug_show_fix_line_endings=args.show_fix_line_endings and args.debug)
 
 
 # this structure should contain the finished content information of the page in PageXML coordinate space
@@ -182,7 +184,7 @@ def process_layout(prediction, scaled_image: SourceImage, process_pool, settings
                     cutouts = schnip_schnip_algorithm(scaled_image, prediction, bbox, process_pool)
                     if settings.fix_line_endings:
                         contours = PageContours(scaled_image, dilation_amount=1)
-                        lines = [fix_coutout_lineendings(co,contours) for co in cutouts]
+                        lines = [fix_coutout_lineendings(co,contours, i ) for i, co in enumerate(cutouts)]
                     else:
                         cutout_polys = [cutout_to_polygon(co, scaled_image) for co in cutouts]
                         lines = [LinePoly(poly, co) for poly,co in zip(cutout_polys, cutouts)]
@@ -193,17 +195,21 @@ def process_layout(prediction, scaled_image: SourceImage, process_pool, settings
 
                 if settings.debug_show_fix_line_endings:
                     from matplotlib import pyplot as plt
-                    plt.imshow(scaled_image.binarized())
+                    fig, ax = plt.subplots(1,2)
+
+                    ax[0].imshow(scaled_image.binarized())
                     for poly in all_lines:
                         x, y = [x[0] for x in poly.poly], [x[1] for x in poly.poly]
                         x.append(x[0])
                         y.append(y[0])
-                        plt.plot(x, y, color='#ff3333', alpha=1, linewidth=3, solid_capstyle='round')
+                        ax[0].plot(x, y, color='#ff3333', alpha=1, linewidth=3, solid_capstyle='round')
                         cutout_poly = cutout_to_polygon(poly.cutout, None)
                         cx, cy = [x[0] for x in cutout_poly], [x[1] for x in cutout_poly]
                         cx.append(cx[0])
                         cy.append(cy[0])
-                        plt.plot(cx, cy, color="#6699cc", alpha=1, linewidth=3)
+                        ax[0].plot(cx, cy, color="#6699cc", alpha=1, linewidth=3)
+                    ax[1].imshow(contours.labeled)
+                    fig.show()
                     plt.show()
         return analyzed_content
 
@@ -278,6 +284,7 @@ def mp_process(args):
     scaled_prediction = PredictionResult([scale_baseline(bl, scale_factor) for bl in prediction.baselines],
                                          [source_image.array().shape[1], source_image.array().shape[0]], 1)
 
+
     layout_settings = LayoutProcessingSettings.from_cmdline_args(args)
 
     analyzed_content = process_layout(scaled_prediction, source_image, None, layout_settings)
@@ -307,9 +314,13 @@ def main():
 
 
     data = zip(sorted(glob.glob(args.prediction)), itertools.repeat(args))
-    with multiprocessing.Pool() as p:
-        for _ in p.imap(mp_process, data):
+    if args.show_layout or args.show_lines or args.show_baselines:
+        for _ in map(mp_process, data):
             pass
+    else:
+        with multiprocessing.Pool() as p:
+            for _ in p.imap(mp_process, data):
+                pass
 
 
 if __name__ == "__main__":

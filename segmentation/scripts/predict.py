@@ -131,6 +131,8 @@ def parse_args():
     parser.add_argument("--show_baselines", action="store_true", help="Draws baseline to the debug image")
     parser.add_argument("--show_lines", action="store_true", help="Draws line polygons to the debug image")
     parser.add_argument("--show_layout", action="store_true", help="Draws layout regions to the debug image")
+    parser.add_argument("--show_fix_line_endings", action="store_true",
+                        help="Show debug information for the line endings fix")
     parser.add_argument("--output_xml", action="store_true", help="Outputs Xml Files")
     parser.add_argument("--output_xml_path", type=str, default=None, help="Directory of the XML output")
     parser.add_argument("--max_line_height", type=int, default=None,
@@ -149,6 +151,7 @@ def parse_args():
     parser.add_argument("--export_path", type=str, default=None, help="Export Predictions as JSON to given path")
     parser.add_argument("--simplified_xml", action="store_true", help="Output simplified PageXML for LAREX")
     parser.add_argument("--schnipschnip", action="store_true", help="Use SchnipSchnip Algorithm to cut Regions into lines")
+
 
     return parser.parse_args()
 

@@ -177,7 +177,7 @@ def find_dividing_path(inv_binary_img: np.ndarray, cut_above, cut_below, startin
         if node.point[0] == end_x:
             path = make_path(node, start_elem)
             if False:
-                dd = DebugDraw(SourceImage.from_numpy(255*(1 - inv_binary_img)))
+                dd = DebugDraw(SourceImage.from_numpy(np.array(255*(1 - inv_binary_img),dtype=np.uint8)))
                 dd.draw_baselines([tl, bl, path])
                 img = dd.image()
                 global seq_number
@@ -230,6 +230,11 @@ def find_dividing_path(inv_binary_img: np.ndarray, cut_above, cut_below, startin
 QuadrupletElem = namedtuple("QuadruppletEleem", "bl_top tl_cur bl_cur tl_bot")
 
 CutoutElem = namedtuple("CutoutElem", "bl tc bc")
+
+def shorten_cutline(cutout_line: List[Tuple], bl : List[Tuple]):
+    minb = bl[0][0]
+    maxb = bl[-1][0]
+    return [co for co in cutout_line if minb <= co[0] <= maxb]
 
 def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionResult, bbox: BboxCluster, process_pool :multiprocessing.Pool = None) -> List[CutoutElem]:
     baselines_cont = [make_baseline_continous(bl) for bl in prediction.baselines]
@@ -284,7 +289,7 @@ def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionRes
         cuts.append(find_dividing_path(inv_binary_dilated,pt[0], pb[1]))
         # draw_bls([pt[0], pb[1], cuts[-1]])
     for pair, tc, bc in zip(pairs[1:], cuts, cuts[1:]):
-        bl_cutouts.append(CutoutElem(bl=pair[0], tc=tc, bc=bc))
+        bl_cutouts.append(CutoutElem(bl=pair[0], tc=shorten_cutline(tc, pair[0]), bc=shorten_cutline(bc, pair[0])))
 
     """
     for pair_top, pair_cur, pair_bottom in zip(pairs, pairs[1:], pairs[2:]):
@@ -329,7 +334,7 @@ def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionRes
                                       pairs[0][0], moveline(pairs[0][0], height_diff, int(inv_binary.shape[0])),
                                       starting_bias=DividingPathStartingBias.TOP)
 
-    bl_cutouts = [CutoutElem(pairs[0][0], tc=first_tc, bc=first_bc)] + bl_cutouts
+    bl_cutouts = [CutoutElem(pairs[0][0], tc=shorten_cutline(first_tc, pairs[0][0]), bc=shorten_cutline(first_bc, pairs[0][0]))] + bl_cutouts
 
     if len(pairs) > 1:
 
@@ -340,7 +345,7 @@ def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionRes
         bot_bc = find_dividing_path(inv_binary_dilated,
                                     pairs[-1][0], moveline(pairs[-1][0], height_diff, int(inv_binary.shape[0])),
                                     starting_bias=DividingPathStartingBias.TOP)
-        bl_cutouts = bl_cutouts + [CutoutElem(pairs[-1][0],tc=bot_tc, bc=bot_bc)]
+        bl_cutouts = bl_cutouts + [CutoutElem(pairs[-1][0],tc=shorten_cutline(bot_tc, pairs[-1][0]), bc=shorten_cutline(bot_bc,pairs[-1][0]))]
 
     return bl_cutouts
 
@@ -425,12 +430,13 @@ IntersectionResult = namedtuple("IntersectionResult", "line_id label")
 LineSegment = namedtuple("LineSegment", "x1 y1 x2 y2")
 
 
-def find_intersecting_labels(lines: List[LineSegment], contours: PageContours) -> List[int]:
+def find_intersecting_labels(lines: List[LineSegment], contours: PageContours) -> Set[int]:
     # create a new image and put the
-    intersections = []
+    intersections = set()
     for li, l in enumerate(lines):
         intersects = contours.labeled[skimage.draw.line(l.y1, l.x1, l.y2, l.x1)]
-        intersections.extend(int(i) for i in intersects if i > 0)
+        for i in intersects:
+            if i > 0: intersections.add(i)
 
     return intersections
 
@@ -466,7 +472,7 @@ def get_contour_convex(relevant: List[int], contours: PageContours) -> List[Tupl
     return poly
 
 
-def fix_coutout_lineendings(cutout: CutoutElem, contours: PageContours) -> LinePoly:
+def fix_coutout_lineendings(cutout: CutoutElem, contours: PageContours, line_id = None) -> LinePoly:
     cutout_poly = cutout_to_polygon(cutout, None)
     fallback = LinePoly(cutout_poly, cutout)
 
@@ -475,9 +481,12 @@ def fix_coutout_lineendings(cutout: CutoutElem, contours: PageContours) -> LineP
                      LineSegment(cutout.bl[0][0], cutout.bl[0][1], cutout.tc[0][0], cutout.tc[0][1])]
         end_lines = [LineSegment(cutout.bc[-1][0], cutout.bc[-1][1], cutout.bl[-1][0], cutout.bl[-1][1]),
                      LineSegment(cutout.bl[-1][0], cutout.bl[-1][1], cutout.tc[-1][0], cutout.tc[-1][1])]
+        logger.info(f"Beg Lines: {beg_lines}\n")
+        logger.info(f"End Lines: {end_lines}\n")
         int_labels_beg = find_intersecting_labels(beg_lines, contours)
         int_labels_end = find_intersecting_labels(end_lines, contours)
-
+        logger.info(f"Beg Labels: {int_labels_beg}\n")
+        logger.info(f"End Labels: {int_labels_end}\n")
         # if the label is approximately the height of the line
         accepted_labels_beg = []
         accepted_labels_end = []
@@ -485,22 +494,22 @@ def fix_coutout_lineendings(cutout: CutoutElem, contours: PageContours) -> LineP
         avg_line_height = cutout_average_height(cutout_get_matched_pairs(cutout))
 
         accepted_labels_beg = []
-        int_labels_beg = list(set(int_labels_beg))
-        int_labels_end = list(set(int_labels_end))
+        int_labels_beg = list(int_labels_beg)
+        int_labels_end = list(int_labels_end)
         for cc in map(lambda x: contours[x], int_labels_beg):
             if cc.height <= avg_line_height * 1.1 and \
               cc.bbox.y2 >= cutout.bl[0][1] - (avg_line_height / 2):
-                #logger.info(f"Accepted: {contours[be]} (al {avg_line_height}")
+                logger.info(f"Accepted: {cc} for {line_id}\n")
                 accepted_labels_beg.append(cc.label)
 
         for cc in map(lambda x: contours[x], int_labels_end):
             if cc.height <= avg_line_height * 1.1 and \
               cc.bbox.y2 >= cutout.bl[-1][1] - (avg_line_height / 2):
-                #logger.info(f"Accepted end: {cc} (al {avg_line_height}")
+                logger.info(f"Accepted end: {cc} for {line_id}\n")
                 accepted_labels_end.append(cc.label)
 
         if len(accepted_labels_end) == 0 and len(accepted_labels_beg) == 0:
-            return fallback # early stopping
+            return fallback  # early stopping
 
         pll = [Polygon(cutout_poly)]
         assert pll[0].is_valid
