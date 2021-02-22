@@ -6,12 +6,15 @@ from itertools import zip_longest
 import glob
 from itertools import tee, islice, chain
 from timeit import default_timer as timer
+import os
 logger = logging.getLogger(__name__)
 logFormatter = logging.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s")
 console_logger = logging.StreamHandler()
 console_logger.setFormatter(logFormatter)
 console_logger.terminator = ""
 logger.setLevel(logging.DEBUG)
+if os.environ["SEGMENTATION_LOGLEVEL"]:
+    logger.setLevel(os.environ["SEGMENTATION_LOGLEVEL"])
 logger.addHandler(console_logger)
 
 def angle_to(p1, p2):
