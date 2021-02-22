@@ -499,14 +499,14 @@ def fix_coutout_lineendings(cutout: CutoutElem, contours: PageContours, line_id 
         for cc in map(lambda x: contours[x], int_labels_beg):
             if cc.height <= avg_line_height * 1.1 and \
               cc.bbox.y2 >= cutout.bl[0][1] - (avg_line_height / 2) and \
-              cc.bbox.y2 <= cutout.bc[0][1] + (avg_line_height) * 1.2:
+              cc.bbox.y2 <= cutout.bc[0][1] + (avg_line_height) * 0.2:
                 logger.info(f"Accepted: {cc} for {line_id}\n")
                 accepted_labels_beg.append(cc.label)
 
         for cc in map(lambda x: contours[x], int_labels_end):
             if cc.height <= avg_line_height * 1.1 and \
               cc.bbox.y2 >= cutout.bl[-1][1] - (avg_line_height / 2) and \
-              cc.bbox.y2 <= cutout.bc[-1][1] + (avg_line_height) * 1.2:
+              cc.bbox.y2 <= cutout.bc[-1][1] + (avg_line_height) * 0.2:
                 logger.info(f"Accepted end: {cc} for {line_id}\n")
                 accepted_labels_end.append(cc.label)
 
