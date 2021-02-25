@@ -5,6 +5,8 @@ import warnings
 import glob
 import os
 
+import torch
+
 from segmentation.postprocessing.baseline_extraction import extract_baselines_from_probability_map
 from segmentation.postprocessing.data_classes import PredictionResult, BboxCluster
 from segmentation.postprocessing.debug_draw import DebugDraw
@@ -111,7 +113,7 @@ class Predictor:
         # now we have the baselines extracted
         return PredictionResult(baselines=baselines,
                                 prediction_scale_factor=scaled_image.scale_factor,
-                                prediction_resolution=list(scaled_image.array().shape)), scaled_image
+                                prediction_resolution=list(reversed(scaled_image.array().shape))), scaled_image
 
 
 
@@ -151,11 +153,42 @@ def parse_args():
     parser.add_argument("--export_path", type=str, default=None, help="Export Predictions as JSON to given path")
     parser.add_argument("--simplified_xml", action="store_true", help="Output simplified PageXML for LAREX")
     parser.add_argument("--schnipschnip", action="store_true", help="Use SchnipSchnip Algorithm to cut Regions into lines")
-
+    parser.add_argument("--twosteps", action="store_true", help="Run two step prediction")
 
     return parser.parse_args()
 
 
+def two_step_file_func(data):
+    args, prediction, file = data
+    source_image = SourceImage.load(file)
+    scaled_image = source_image.scaled(prediction.prediction_scale_factor)
+
+    if args.export_path:
+        bname_json = os.path.splitext(os.path.basename(file))[0] + ".blp.json"
+        with open(os.path.join(args.export_path, bname_json), "w") as f:
+            f.write(prediction.to_json())
+
+    scale_factor = prediction.prediction_scale_factor
+
+    layout_settings = LayoutProcessingSettings.from_cmdline_args(args)
+
+    analyzed_content = process_layout(prediction, scaled_image, None, layout_settings)
+
+    # layout_debugging(args, analyzed_content, scaled_image, file)
+
+    # convert this back to the original image space
+    analyzed_content = analyzed_content.to_pagexml_space(scale_factor)
+
+    # debugging
+
+    layout_debugging(args, analyzed_content, source_image, file)
+
+    if args.print_xml or (args.output_xml is not None and args.output_xml_path is not None):
+        xml_gen = analyzed_content.export(source_image, file, simplified_xml=args.simplified_xml)
+        if args.print_xml:
+            print(xml_gen.baselines_to_xml_string())
+        else:
+            xml_gen.save_textregions_as_xml(args.output_xml_path)
 
 
 def main():
@@ -171,43 +204,61 @@ def main():
         files = args.files
     settings = PredictionSettings(args.load,args.scale_area, args.min_line_height, args.max_line_height)
 
+    torch.set_num_threads(multiprocessing.cpu_count())
+    # TODO: On Ryzen 5600X this does not improve performance
+    # To improve CPU prediction performance, maybe prefetch img load and run distance_matrix on multiple cores
+
     nn_predictor = Predictor(settings)
+    if not args.twosteps:
+        with multiprocessing.Pool(args.processes) as process_pool:
+            for file in files:
+                logger.info("Processing: {} \n".format(file))
+                source_image = SourceImage.load(file)
 
-    with multiprocessing.Pool(args.processes) as process_pool:
-        for file in files:
-            logger.info("Processing: {} \n".format(file))
-            source_image = SourceImage.load(file)
+                prediction, scaled_image = nn_predictor.predict_image(source_image, process_pool=process_pool)
 
-            prediction, scaled_image = nn_predictor.predict_image(source_image, process_pool=process_pool)
+                if args.export_path:
+                    bname_json = os.path.splitext(os.path.basename(file))[0] + ".blp.json"
+                    with open(os.path.join(args.export_path, bname_json), "w") as f:
+                        f.write(prediction.to_json())
 
-            if args.export_path:
-                bname_json = os.path.splitext(os.path.basename(file))[0] + ".blp.json"
-                with open(os.path.join(args.export_path, bname_json), "w") as f:
-                    f.write(prediction.to_json())
+                scale_factor = prediction.prediction_scale_factor
 
-            scale_factor = prediction.prediction_scale_factor
+                layout_settings = LayoutProcessingSettings.from_cmdline_args(args)
 
-            layout_settings = LayoutProcessingSettings.from_cmdline_args(args)
+                analyzed_content = process_layout(prediction, scaled_image,process_pool,layout_settings)
 
-            analyzed_content = process_layout(prediction, scaled_image,process_pool,layout_settings)
+                #layout_debugging(args, analyzed_content, scaled_image, file)
 
-            #layout_debugging(args, analyzed_content, scaled_image, file)
-
-            # convert this back to the original image space
-            analyzed_content = analyzed_content.to_pagexml_space(scale_factor)
+                # convert this back to the original image space
+                analyzed_content = analyzed_content.to_pagexml_space(scale_factor)
 
 
 
-            # debugging
+                # debugging
 
-            layout_debugging(args, analyzed_content, source_image, file)
+                layout_debugging(args, analyzed_content, source_image, file)
 
-            if args.print_xml or (args.output_xml is not None and args.output_xml_path is not None):
-                xml_gen = analyzed_content.export(source_image, file, simplified_xml=args.simplified_xml)
-                if args.print_xml:
-                    print(xml_gen.baselines_to_xml_string())
-                else:
-                    xml_gen.save_textregions_as_xml(args.output_xml_path)
+                if args.print_xml or (args.output_xml is not None and args.output_xml_path is not None):
+                    xml_gen = analyzed_content.export(source_image, file, simplified_xml=args.simplified_xml)
+                    if args.print_xml:
+                        print(xml_gen.baselines_to_xml_string())
+                    else:
+                        xml_gen.save_textregions_as_xml(args.output_xml_path)
+    else: # two step prediction
+        predictions = []
+        with multiprocessing.Pool() as pool:
+            for file in files:
+                logger.info("Processing: {} \n".format(file))
+                source_image = SourceImage.load(file)
+
+                prediction, _ = nn_predictor.predict_image(source_image, process_pool=pool)
+                predictions.append(prediction)
+
+            data = [(args, pred, file) for pred,file in zip(predictions, files)]
+
+            for _ in pool.imap_unordered(two_step_file_func,data):
+                pass
 
 if __name__ == "__main__":
     with PerformanceCounter("Total running time"):
