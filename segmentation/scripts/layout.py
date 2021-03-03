@@ -6,15 +6,17 @@ import os
 from dataclasses import dataclass
 from typing import NamedTuple, List, Dict
 from enum import Enum
+import numpy as np
+from functools import partial
 
 from segmentation.gui.xml_util import TextRegion, BaseLine, TextLine, XMLGenerator
 from segmentation.postprocessing.data_classes import PredictionResult, BboxCluster
 from segmentation.postprocessing.debug_draw import DebugDraw
-from segmentation.postprocessing.layout_analysis import get_top_of_baselines_improved, analyse, connect_bounding_box
+from segmentation.postprocessing.layout_analysis import get_top_of_baselines, get_top_of_baselines_improved, analyse, connect_bounding_box
 from segmentation.postprocessing.layout_line_segment import schnip_schnip_algorithm, cutout_to_polygon, PageContours, \
-    fix_coutout_lineendings, LinePoly
+    fix_coutout_lineendings, LinePoly, CutoutElem
 from segmentation.preprocessing.source_image import SourceImage
-from segmentation.postprocessing.baselines_util import scale_baseline, make_baseline_continous, simplify_baseline
+from segmentation.postprocessing.baselines_util import scale_baseline, make_baseline_continous, simplify_baseline, flip_baseline
 from segmentation.util import PerformanceCounter, logger
 
 def parse_args():
@@ -159,13 +161,22 @@ def complex_layout(prediction: PredictionResult, scaled_image: SourceImage, sett
 
 def generate_lines_polygons(prediction: PredictionResult, scaled_image: SourceImage, process_pool) -> List:
     baselines = list(map(make_baseline_continous, prediction.baselines))
-    baseline_tops = get_top_of_baselines_improved(baselines, 1 - scaled_image.binarized(), process_pool=process_pool)
-    polys = []
-    for bl, bl_top, _ in baseline_tops:
-        bl = simplify_baseline(bl)
-        bl_top = simplify_baseline(bl_top)
-        text_region_coord = bl + list(reversed(bl_top))
-        polys.append(text_region_coord)
+    baseline_tops = list(map(lambda blt: blt.top, get_top_of_baselines_improved(baselines, 1 - scaled_image.binarized(), process_pool=process_pool)))
+    middle_lines = [
+                [
+                    (t[0], (b[1] + t[1]) // 2) for b, t in zip(base, top)
+                ] for base, top in zip(baselines, baseline_tops)
+            ]
+    flip = partial(flip_baseline, image_shape=scaled_image.array().shape)
+    baseline_bottoms = get_top_of_baselines(
+            list(map(flip, middle_lines)),
+            1 - np.flip(scaled_image.binarized()),
+            process_pool=process_pool)
+    baseline_bottoms = [ flip(b.top) for b in baseline_bottoms ]
+
+    cutouts = [ CutoutElem(bl, tc, bc) for bl, tc, bc in zip(baselines, baseline_tops, baseline_bottoms) ]
+    contours = PageContours(scaled_image, dilation_amount=1)
+    polys = [fix_coutout_lineendings(co, contours, i).poly for i, co in enumerate(cutouts)]
     return polys
 
 

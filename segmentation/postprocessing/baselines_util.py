@@ -19,6 +19,8 @@ def make_baseline_continous(bl):
     nl = list(zip(new_xs.tolist(), new_ys.tolist()))
     return nl
 
+def flip_baseline(bl, image_shape):
+    return [(image_shape[1] - c[0], image_shape[0] - c[1]) for c in reversed(bl)]
 
 def simplify_baseline(bl):
     new_coords = [bl[0]]
