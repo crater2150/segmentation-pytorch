@@ -83,7 +83,7 @@ class BboxCluster():
 @dataclass
 class PredictionResult:
     baselines: List[List[Tuple[int, int]]]
-    prediction_resolution: List[int]
+    prediction_shape: List[int]
     prediction_scale_factor: float = None
     toplines: List[Tuple[int, int]] = None
     #matching: List[List[List]] = None  # this could possible be an n to n relation

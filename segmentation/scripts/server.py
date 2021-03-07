@@ -20,7 +20,7 @@ def schnipschnip():
 
     img = SourceImage.load(image_path)
 
-    prediction = PredictionResult(baselines=baselines, prediction_resolution=list(img.array().shape))
+    prediction = PredictionResult(baselines=baselines, prediction_shape=list(img.array().shape))
     layout_settings = LayoutProcessingSettings(marginalia_postprocessing=False,
                                                source_scale=True, lines_only=False,
                                                schnip_schnip=True)
@@ -43,7 +43,7 @@ def main():
 
     img = SourceImage.load(args.image_file)
 
-    prediction = PredictionResult(baselines=baselines, prediction_resolution=list(img.array().shape))
+    prediction = PredictionResult(baselines=baselines, prediction_shape=list(img.array().shape))
     layout_settings = LayoutProcessingSettings(marginalia_postprocessing=False,
                                                source_scale=True, lines_only=False,
                                                schnip_schnip=True)

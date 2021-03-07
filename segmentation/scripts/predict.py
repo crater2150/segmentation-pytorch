@@ -113,7 +113,7 @@ class Predictor:
         # now we have the baselines extracted
         return PredictionResult(baselines=baselines,
                                 prediction_scale_factor=scaled_image.scale_factor,
-                                prediction_resolution=list(reversed(scaled_image.array().shape))), scaled_image
+                                prediction_shape=list(scaled_image.array().shape)), scaled_image
 
 
 

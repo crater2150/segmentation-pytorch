@@ -280,7 +280,7 @@ def mp_process(args):
         logger.info(f"No scaling required for {pred_file}")
     """
     # scale the Baselines to the binarized image's size and do the processing in image space
-    scale_factor = (source_image.array().shape[0] / prediction.prediction_resolution[0])
+    scale_factor = (source_image.array().shape[0] / prediction.prediction_shape[0])
     scaled_prediction = PredictionResult([scale_baseline(bl, scale_factor) for bl in prediction.baselines],
                                          [source_image.array().shape[1], source_image.array().shape[0]], 1)
 
