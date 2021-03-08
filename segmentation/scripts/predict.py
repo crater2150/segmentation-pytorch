@@ -1,23 +1,18 @@
 import argparse
-import multiprocessing
-from os import path
-import warnings
 import glob
+import multiprocessing
 import os
+import warnings
 
 import torch
 
 from segmentation.postprocessing.baseline_extraction import extract_baselines_from_probability_map
-from segmentation.postprocessing.data_classes import PredictionResult, BboxCluster
-from segmentation.postprocessing.debug_draw import DebugDraw
-from segmentation.postprocessing.layout_analysis import  get_top_of_baselines
-from segmentation.postprocessing.layout_line_segment import schnip_schnip_algorithm, cutout_to_polygon, \
-    find_dividing_path
+from segmentation.postprocessing.data_classes import PredictionResult
+from segmentation.postprocessing.layout_analysis import get_top_of_baselines
 from segmentation.preprocessing.source_image import SourceImage
-from segmentation.scripts.layout import process_layout, LayoutProcessingSettings, layout_debugging, AnalyzedRegion
+from segmentation.scripts.layout import process_layout, LayoutProcessingSettings, layout_debugging
 from segmentation.settings import PredictorSettings
 from segmentation.util import PerformanceCounter
-
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
 import itertools
@@ -25,16 +20,9 @@ import numpy as np
 from segmentation.util import logger
 from typing import NamedTuple, List
 
-from segmentation.network import TrainSettings, dirs_to_pandaframe, load_image_map_from_file, MaskSetting, MaskType, \
-    PCGTSVersion, XMLDataset, Network, compose, MaskGenerator, MaskDataset
+from segmentation.network import Network
 
-from segmentation.postprocessing.baselines_util import scale_baseline, make_baseline_continous, simplify_baseline
-
-def dir_path(string):
-    if path.isdir(string):
-        return string
-    else:
-        raise NotADirectoryError(string)
+from segmentation.postprocessing.baselines_util import simplify_baseline
 
 
 class Ensemble:
@@ -43,17 +31,6 @@ class Ensemble:
 
     def __call__(self, x, scale_area, additional_scale_factor=None):
         raise DeprecationWarning()
-        res = []
-        scale_factor = None
-        for m in self.models:
-            p_map, s_factor = m.predict_single_image_by_path(x, rgb=True, preprocessing=True, scale_area=scale_area,
-                                                             additional_scale_factor=additional_scale_factor)
-            scale_factor = s_factor
-            res.append(p_map)
-        if len(res) == 1:
-            return res[0], scale_factor
-        res = np.stack(res, axis=0)
-        return np.mean(res, axis=0), scale_factor
 
     def predict_image(self, source_image: SourceImage):
         def predict(m):
@@ -66,7 +43,7 @@ class Ensemble:
             res = np.zeros(shape=source_image.array().shape, dtype=np.float32)
             for m in self.models:
                 res += predict(m)
-            return res / len(self.models) # TODO: check if this is equivalent (it probably is)
+            return res / len(self.models)  # TODO: check if this is equivalent (it probably is)
 
 
 class PredictionSettings(NamedTuple):
@@ -82,7 +59,8 @@ class Predictor:
         self.networks = [Network(PredictorSettings(MODEL_PATH=x)) for x in self.settings.model_paths]
         self.ensemble = Ensemble(self.networks)
 
-    def predict_image(self, source_image: SourceImage, process_pool: multiprocessing.Pool = multiprocessing.Pool(1)) -> (PredictionResult, SourceImage):
+    def predict_image(self, source_image: SourceImage,
+                      process_pool: multiprocessing.Pool = multiprocessing.Pool(1)) -> (PredictionResult, SourceImage):
         scale_factor_multiplier = 1
         while True:
             scaled_image = source_image.scale_area(self.settings.scale_area, scale_factor_multiplier)
@@ -96,25 +74,22 @@ class Predictor:
                     out = get_top_of_baselines(baselines, image=1 - binary,
                                                process_pool=None)  # No MP is faster here (avoid image copy)
                 heights = [x[2] for x in out]
+                med_height = np.median(heights)
 
-                if (self.settings.max_line_height is not None or self.settings.min_line_height is not None) \
+                if (self.settings.max_line_height is not None and med_height > self.settings.max_line_height) \
+                        or (self.settings.min_line_height is not None and med_height < self.settings.min_line_height) \
                         and scale_factor_multiplier == 1:
-
-                    if (self.settings.max_line_height is not None and np.median(heights) > self.settings.max_line_height) or \
-                            (self.settings.min_line_height is not None and np.median(heights) < self.settings.min_line_height):
-                        scale_factor_multiplier = (self.settings.max_line_height - 7) / np.median(heights)
-                        logger.info("Resizing image Avg:{}, Med:{} \n".format(np.mean(heights), np.median(heights)))
-                        continue
+                    scale_factor_multiplier = (self.settings.max_line_height - 7) / med_height
+                    logger.info("Resizing image Avg:{}, Med:{} \n".format(np.mean(heights), med_height))
+                    continue
             break
-        if baselines is None:
-            baselines = []
+
         # simplify the baselines
-        baselines = [simplify_baseline(bl) for bl in baselines]
+        baselines = [simplify_baseline(bl) for bl in baselines or []]
         # now we have the baselines extracted
         return PredictionResult(baselines=baselines,
                                 prediction_scale_factor=scaled_image.scale_factor,
                                 prediction_shape=list(scaled_image.array().shape)), scaled_image
-
 
 
 def parse_args():
@@ -152,7 +127,10 @@ def parse_args():
     parser.add_argument("--print_xml", action="store_true", help="Print XML to stdout")
     parser.add_argument("--export_path", type=str, default=None, help="Export Predictions as JSON to given path")
     parser.add_argument("--simplified_xml", action="store_true", help="Output simplified PageXML for LAREX")
-    parser.add_argument("--schnipschnip", action="store_true", help="Use SchnipSchnip Algorithm to cut Regions into lines")
+    parser.add_argument("--height_diff_factor", type=int, default=-2,
+                        help="line height factor for SchnipSchnip. Use more negative value, if detected lines are not high enough")
+    parser.add_argument("--schnipschnip", action="store_true",
+                        help="Use SchnipSchnip Algorithm to cut Regions into lines")
     parser.add_argument("--twosteps", action="store_true", help="Run two step prediction")
 
     return parser.parse_args()
@@ -202,7 +180,7 @@ def main():
         files = sorted(itertools.chain.from_iterable([glob.glob(x) for x in args.image_path]))
     else:
         files = args.files
-    settings = PredictionSettings(args.load,args.scale_area, args.min_line_height, args.max_line_height)
+    settings = PredictionSettings(args.load, args.scale_area, args.min_line_height, args.max_line_height)
 
     torch.set_num_threads(multiprocessing.cpu_count())
     # TODO: On Ryzen 5600X this does not improve performance
@@ -226,14 +204,12 @@ def main():
 
                 layout_settings = LayoutProcessingSettings.from_cmdline_args(args)
 
-                analyzed_content = process_layout(prediction, scaled_image,process_pool,layout_settings)
+                analyzed_content = process_layout(prediction, scaled_image, process_pool, layout_settings)
 
-                #layout_debugging(args, analyzed_content, scaled_image, file)
+                # layout_debugging(args, analyzed_content, scaled_image, file)
 
                 # convert this back to the original image space
                 analyzed_content = analyzed_content.to_pagexml_space(scale_factor)
-
-
 
                 # debugging
 
@@ -245,7 +221,7 @@ def main():
                         print(xml_gen.baselines_to_xml_string())
                     else:
                         xml_gen.save_textregions_as_xml(args.output_xml_path)
-    else: # two step prediction
+    else:  # two step prediction
         predictions = []
         with multiprocessing.Pool() as pool:
             for file in files:
@@ -255,10 +231,11 @@ def main():
                 prediction, _ = nn_predictor.predict_image(source_image, process_pool=pool)
                 predictions.append(prediction)
 
-            data = [(args, pred, file) for pred,file in zip(predictions, files)]
+            data = [(args, pred, file) for pred, file in zip(predictions, files)]
 
-            for _ in pool.imap_unordered(two_step_file_func,data):
+            for _ in pool.imap_unordered(two_step_file_func, data):
                 pass
+
 
 if __name__ == "__main__":
     with PerformanceCounter("Total running time"):

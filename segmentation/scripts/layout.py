@@ -53,14 +53,17 @@ class LayoutProcessingSettings(NamedTuple):
     # rescale_area: int = 0 # If this is given, rescale to given area
     lines_only: bool = False
     schnip_schnip: bool = False
+    schnip_schnip_height_diff_factor: int = -2
     fix_line_endings: bool = True
     debug_show_fix_line_endings: bool = False
 
     @staticmethod
     def from_cmdline_args(args):
         return LayoutProcessingSettings(marginalia_postprocessing=args.marginalia_postprocessing,
-                                                   source_scale=True, lines_only=not args.layout_prediction,
-                                                   schnip_schnip=args.schnipschnip, debug_show_fix_line_endings=args.show_fix_line_endings and args.debug)
+                                        source_scale=True, lines_only=not args.layout_prediction,
+                                        schnip_schnip=args.schnipschnip,
+                                        debug_show_fix_line_endings=args.show_fix_line_endings and args.debug,
+                                        schnip_schnip_height_diff_factor=args.height_diff_factor)
 
 
 # this structure should contain the finished content information of the page in PageXML coordinate space
@@ -192,7 +195,7 @@ def process_layout(prediction, scaled_image: SourceImage, process_pool, settings
 
             with PerformanceCounter("SchnipSchnip"):
                 for bbox in analyzed_content.bboxs:
-                    cutouts = schnip_schnip_algorithm(scaled_image, prediction, bbox, process_pool)
+                    cutouts = schnip_schnip_algorithm(scaled_image, prediction, bbox, settings)
                     if settings.fix_line_endings:
                         contours = PageContours(scaled_image, dilation_amount=1)
                         lines = [fix_coutout_lineendings(co,contours, i ) for i, co in enumerate(cutouts)]
