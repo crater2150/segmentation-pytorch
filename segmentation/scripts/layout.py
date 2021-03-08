@@ -164,7 +164,7 @@ def generate_lines_polygons(prediction: PredictionResult, scaled_image: SourceIm
     baseline_tops = list(map(lambda blt: blt.top, get_top_of_baselines_improved(baselines, 1 - scaled_image.binarized(), process_pool=process_pool)))
     middle_lines = [
                 [
-                    (t[0], (b[1] + t[1]) // 2) for b, t in zip(base, top)
+                    (t[0], b[1] + (t[1] - b[1]) // 5) for b, t in zip(base, top)
                 ] for base, top in zip(baselines, baseline_tops)
             ]
     flip = partial(flip_baseline, image_shape=scaled_image.array().shape)
