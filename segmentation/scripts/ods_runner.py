@@ -5,6 +5,8 @@ import multiprocessing
 from tqdm import tqdm
 import os
 import sys
+import time
+
 
 this_dir = os.path.dirname(os.path.realpath(__file__))
 root_dir = os.path.abspath(os.path.join(this_dir, '..', '..'))
@@ -106,6 +108,7 @@ def run(ex_args):
         print("            {}".format(ex_args))
         return None
 
+    start_time = time.monotonic()
     process = subprocess.Popen(cmd_list, stdout=subprocess.PIPE)
     result = None
     while True:
@@ -124,7 +127,8 @@ def run(ex_args):
                     print(output)
 
     rc = process.poll()
-
+    elapsed_monotonic = time.monotonic()
+    result.append(f"{round(elapsed_monotonic)}")
     if result is None:
         print("Command '{}' yielded None".format(" ".join(cmd_list)))
         return None
