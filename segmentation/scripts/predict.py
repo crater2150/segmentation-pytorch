@@ -204,9 +204,10 @@ def main():
         files = args.files
     settings = PredictionSettings(args.load,args.scale_area, args.min_line_height, args.max_line_height)
 
-    torch.set_num_threads(multiprocessing.cpu_count())
-    # TODO: On Ryzen 5600X this does not improve performance
-    # To improve CPU prediction performance, maybe prefetch img load and run distance_matrix on multiple cores
+    if torch.cuda.is_available() is False:
+        torch.set_num_threads(multiprocessing.cpu_count())
+        # TODO: On Ryzen 5600X this does not improve performance
+        # To improve CPU prediction performance, maybe prefetch img load and run distance_matrix on multiple cores
 
     nn_predictor = Predictor(settings)
     if not args.twosteps:
