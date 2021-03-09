@@ -395,7 +395,7 @@ class Network(object):
             return
         criterion = nn.CrossEntropyLoss()
         val_loader = data.DataLoader(dataset=self.settings.PREDICT_DATASET, batch_size=1,
-                                     shuffle=False)
+                                     shuffle=False, num_workers=self.settings.PROCESSES)
         accuracy, loss = test(self.model, self.device, val_loader, criterion=criterion, padding_value=self.padding_value)
 
         return accuracy, loss

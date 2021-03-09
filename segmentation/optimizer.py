@@ -5,7 +5,7 @@ from torch.optim.optimizer import Optimizer
 import torch
 from torch.optim.optimizer import Optimizer
 from collections import defaultdict
-
+from adabelief_pytorch import AdaBelief
 
 # RAdam + LARS
 class Optimizers(enum.Enum):
@@ -14,6 +14,7 @@ class Optimizers(enum.Enum):
     RALAMB = 'ralamb'
     RANGER = 'ranger'
     RANGERLARS = 'rangerlars'
+    ADABELIEF = 'adabelief'
 
     def getOptimizer(self):
         return {'adam': torch.optim.Adam,
@@ -21,6 +22,7 @@ class Optimizers(enum.Enum):
                 'radam': RAdam,
                 'ranger': Ranger,
                 'rangerlars': Over9000,
+                'adabelief': AdaBelief
                 }[self.value]
 
 
