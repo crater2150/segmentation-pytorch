@@ -351,7 +351,7 @@ class Network(object):
         train_loader = data.DataLoader(dataset=self.settings.TRAIN_DATASET, batch_size=self.settings.TRAIN_BATCH_SIZE,
                                        shuffle=True, num_workers=self.settings.PROCESSES)
         val_loader = data.DataLoader(dataset=self.settings.VAL_DATASET, batch_size=self.settings.VAL_BATCH_SIZE,
-                                     shuffle=False)
+                                     shuffle=False, num_workers=self.settings.PROCESSES)
         pseudo_loader = None
         if self.settings.PSEUDO_DATASET is not None:
             pseudo_loader = data.DataLoader(dataset=self.settings.PSEUDO_DATASET,
