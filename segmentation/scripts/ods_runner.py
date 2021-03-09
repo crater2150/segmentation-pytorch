@@ -100,7 +100,15 @@ def run(ex_args):
             else:
                 cmd_list.append(value)
 
-    cmd_list += ['--{}'.format(a) for a in args.additional_args]
+    for a in args.additional_args:
+        if " " in a:
+            # split the string
+            splitted = a.split(" ")
+            cmd_list.append(f"--{splitted[0]}")
+            cmd_list += [s for s in splitted[1:]]
+        else:
+            cmd_list.append(f"--{a}")
+
     cmd_list = list(map(str, cmd_list))
 
     if args.simulate:
@@ -128,7 +136,9 @@ def run(ex_args):
 
     rc = process.poll()
     elapsed_monotonic = time.monotonic() - start_time
-    result.append(f"{round(elapsed_monotonic)}")
+    if type(result) is list:
+        result.append(f"{round(elapsed_monotonic)}")
+
     if result is None:
         print("Command '{}' yielded None".format(" ".join(cmd_list)))
         return None
