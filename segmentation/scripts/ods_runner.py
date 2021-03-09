@@ -127,7 +127,7 @@ def run(ex_args):
                     print(output)
 
     rc = process.poll()
-    elapsed_monotonic = time.monotonic()
+    elapsed_monotonic = time.monotonic() - start_time
     result.append(f"{round(elapsed_monotonic)}")
     if result is None:
         print("Command '{}' yielded None".format(" ".join(cmd_list)))
