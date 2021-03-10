@@ -29,6 +29,8 @@ from segmentation.network import TrainSettings, dirs_to_pandaframe, load_image_m
     PCGTSVersion, XMLDataset, Network, compose, MaskGenerator, MaskDataset
 
 from segmentation.postprocessing.baselines_util import scale_baseline, make_baseline_continous, simplify_baseline
+from tqdm import tqdm
+
 
 def dir_path(string):
     if path.isdir(string):
@@ -195,24 +197,29 @@ def main():
     args = parse_args()
     if args.image_path:
         if args.files is not None and args.files != []:
-            logger.error(f"Cannot specify --image_path and positional arguments at the same time")
+            logger.error(f"Cannot specify --image_path and positional arguments at the same time\n")
 
-        logger.warn(f"Using glob filenames: {args.image_path}.")
-        logger.warn("Glob might silently skip unreadable or unaccessable files.")
+        logger.warn(f"Using glob filenames: {args.image_path}.\n")
+        logger.warn("Glob might silently skip unreadable or unaccessable files.\n")
         files = sorted(itertools.chain.from_iterable([glob.glob(x) for x in args.image_path]))
     else:
         files = args.files
     settings = PredictionSettings(args.load,args.scale_area, args.min_line_height, args.max_line_height)
 
     if torch.cuda.is_available() is False:
-        torch.set_num_threads(multiprocessing.cpu_count())
+        torch.set_num_threads(args.processes)
         # TODO: On Ryzen 5600X this does not improve performance
         # To improve CPU prediction performance, maybe prefetch img load and run distance_matrix on multiple cores
+        print(f"Using {args.processes} CPU threads for prediction")
+    else:
+        torch.cuda.init()
+        logger.info(f"Prediction using CUDA version: {torch.version.cuda}\n")
+        logger.info(f"Running on GPU: {torch.cuda.get_device_name()}\n")
 
     nn_predictor = Predictor(settings)
     if not args.twosteps:
         with multiprocessing.Pool(args.processes) as process_pool:
-            for file in files:
+            for file in tqdm(files):
                 logger.info("Processing: {} \n".format(file))
                 source_image = SourceImage.load(file)
 
@@ -249,7 +256,7 @@ def main():
     else: # two step prediction
         predictions = []
         with multiprocessing.Pool() as pool:
-            for file in files:
+            for file in tqdm(files):
                 logger.info("Processing: {} \n".format(file))
                 source_image = SourceImage.load(file)
 
@@ -258,7 +265,7 @@ def main():
 
             data = [(args, pred, file) for pred,file in zip(predictions, files)]
 
-            for _ in pool.imap_unordered(two_step_file_func,data):
+            for _ in tqdm(pool.imap_unordered(two_step_file_func,data), total=len(files)):
                 pass
 
 if __name__ == "__main__":
