@@ -152,13 +152,13 @@ def complex_layout(prediction: PredictionResult, scaled_image: SourceImage, sett
     if not settings.source_scale:
         raise NotImplementedError()
     with PerformanceCounter(function_name="Layout Analysis"):
-        bboxs = analyse(baselines=baselines, image=(1 - scaled_image.binarized()), image2=scaled_image.array(), use_improved_tops=False)
+        bboxs = analyse(baselines=baselines, image=(1 - scaled_image.binarized()), use_improved_tops=False)
     from segmentation.postprocessing.marginialia_detection import marginalia_detection
 
     if settings.marginalia_postprocessing:
         bboxs = marginalia_detection(bboxs, scaled_image.array())
         baselines = [bl.baseline for cluster in bboxs for bl in cluster.baselines]
-        bboxs = analyse(baselines=baselines, image=(1 - scaled_image.binarized()), image2=scaled_image.array(), use_improved_tops=False)
+        bboxs = analyse(baselines=baselines, image=(1 - scaled_image.binarized()), use_improved_tops=False)
     return connect_bounding_box(bboxs)
 
 

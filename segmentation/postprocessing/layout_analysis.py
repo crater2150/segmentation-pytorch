@@ -1,23 +1,20 @@
-import glob
 import itertools
 import math
 import multiprocessing
+from collections.abc import Collection, Iterable
 from functools import partial
-from typing import List, NamedTuple
-from segmentation.postprocessing.data_classes import BboxCluster, BaselineResult
-from segmentation.postprocessing.baseline_extraction import extract_baselines_from_probability_map
-from segmentation.settings import PredictorSettings
-import numpy as np
-from sklearn.cluster import DBSCAN
+from typing import List, NamedTuple, Callable
 from PIL import Image, ImageDraw
 
-from collections.abc import Collection, Iterable
+import numpy as np
+from sklearn.cluster import DBSCAN
 
-from segmentation.util import PerformanceCounter
+from segmentation.postprocessing.data_classes import BboxCluster, BaselineResult
 
 '''
 Todo: Refactor file
 '''
+
 
 class BaselineCollection(Collection):
     def __init__(self, baselines=[]):
@@ -48,7 +45,7 @@ class Baseline(Iterable):
 
 
 class BaselinePrediction:
-    def __init__(self, baselines: BaselineCollection, upper_baselines:BaselineCollection=BaselineCollection([])):
+    def __init__(self, baselines: BaselineCollection, upper_baselines: BaselineCollection = BaselineCollection([])):
         self.baselines = baselines
         self.upper_baselines = upper_baselines
 
@@ -56,46 +53,30 @@ class BaselinePrediction:
         pass
 
 
-
 def is_below(b1: BboxCluster, b2: BboxCluster, gap_padding_factor=0.5):
     """
     Checks if b2 is above b1
     """
-    b1p1, b1p2 = b1.get_top_line_of_bbox()
-    b2p1, p2p2 = b2.get_bottom_line_of_bbox()
-    b1x1, b1y1 = b1p1
-    b1x2, b1y2 = b1p2
-    b2x1, b2y1 = b2p1
-    b2x2, b2y2 = p2p2
     height = b2.get_average_height()
-    if b2x1 <= b1x1 <= b2x2 or b2x1 <= b1x2 <= b2x2 or (b2x1 >= b1x1 and b2x2 <= b1x2) or (
-            b2x1 <= b1x1 and b2x2 >= b1x2):
-        # print(b2y1)
-        # print(b1y1)
-        # print(b2y1 < b1y1)
-        if b2y1 < b1y1 + gap_padding_factor * height:  # (0,0) is top left
-            return True
-
-    return False
+    return _is_in_direction(b1.get_bottom_line_of_bbox(), b2.get_top_line_of_bbox(),
+                            lambda b2y1, b1y1: b2y1 < b1y1 + gap_padding_factor * height)
 
 
 def is_above(b1: BboxCluster, b2: BboxCluster, gap_padding_factor=0.5):
     """
     Checks if b2 is below b1
     """
-    b1p1, b1p2 = b1.get_bottom_line_of_bbox()
-    b2p1, p2p2 = b2.get_top_line_of_bbox()
-    b1x1, b1y1 = b1p1
-    b1x2, b1y2 = b1p2
-    b2x1, b2y1 = b2p1
-    b2x2, b2y2 = p2p2
     height = b2.get_average_height()
+    return _is_in_direction(b1.get_bottom_line_of_bbox(), b2.get_top_line_of_bbox(),
+                            lambda b2y1, b1y1: b2y1 + gap_padding_factor * height > b1y1)
+
+
+def _is_in_direction(b1line: BboxCluster, b2line: BboxCluster, compare: Callable[[float, float], bool]):
+    (b1x1, b1y1), (b1x2, b1y2) = b1line
+    (b2x1, b2y1), (b2x2, b2y2) = b2line
     if b2x1 <= b1x1 <= b2x2 or b2x1 <= b1x2 <= b2x2 or (b2x1 >= b1x1 and b2x2 <= b1x2) or (
             b2x1 <= b1x1 and b2x2 >= b1x2):
-        # print(b2y1)
-        # print(b1y1)
-        # print(b2y1 < b1y1)
-        if b2y1 + gap_padding_factor * height > b1y1:  # (0,0) is top left
+        if compare(b2y1, b1y1):  # (0,0) is top left
             return True
 
     return False
@@ -105,108 +86,69 @@ def is_between(b1: BboxCluster, b2: BboxCluster, b3: BboxCluster, gap_padding_fa
     """
     checks if b1 is between b2 and b3
     """
-    if is_below(b1, b2):
-        if is_above(b1, b3):
-            return True
-    elif is_below(b1, b3):
-        if is_above(b1, b2):
-            return True
-    return False
+    return (is_below(b1, b2, gap_padding_factor) and is_above(b1, b3, gap_padding_factor)) or \
+           (is_below(b1, b3, gap_padding_factor) and is_above(b1, b2, gap_padding_factor))
 
 
-def get_bboxs_between(bbox: BboxCluster, bbox2: BboxCluster, bbox_cluster: List[BboxCluster], height_threshold=100):
-    result = []
+def get_bboxs_between(bbox: BboxCluster, bbox2: BboxCluster, bbox_cluster: List[BboxCluster]):
+    return [x for x in _different_bboxes(bbox, bbox_cluster)
+            if is_between(x, bbox, bbox2)]
+
+
+def _different_bboxes(bbox: BboxCluster, bbox_cluster: List[BboxCluster]):
     for x in bbox_cluster:
-        if set(sorted(list(itertools.chain.from_iterable(x.bbox)))) != set(
-                sorted(list(itertools.chain.from_iterable(bbox.bbox)))):
-            if is_between(x, bbox, bbox2):
+        # TODO: is this really what we want, or should the chain.from_iterable be removed?
+        if set(itertools.chain.from_iterable(x.bbox)) != set(itertools.chain.from_iterable(bbox.bbox)):
+            yield x
+
+
+def get_bboxs_above(bbox: BboxCluster, bbox_cluster: List[BboxCluster]):
+    result = []
+    for x in _different_bboxes(bbox, bbox_cluster):
+        if is_above(x, bbox):
+            difference = bbox.get_top_line_of_bbox()[0][1] - x.get_bottom_line_of_bbox()[1][1]
+            height = bbox.get_average_height()
+            if difference <= height:
                 result.append(x)
-    return result
-
-
-def get_bboxs_above(bbox: BboxCluster, bbox_cluster: List[BboxCluster], height_threshold=100):
-    result = []
-    for x in bbox_cluster:
-        if set(sorted(list(itertools.chain.from_iterable(x.bbox)))) != set(
-                sorted(list(itertools.chain.from_iterable(bbox.bbox)))):
-            if is_above(x, bbox):
-                b1p1, b1p2 = bbox.get_top_line_of_bbox()
-                b2p1, p2p2 = x.get_bottom_line_of_bbox()
-                b1x1, b1y1 = b1p1
-                b2x2, b2y2 = p2p2
-                height = bbox.get_average_height()
-                difference = b1y1 - b2y2
-                if difference <= height:
-                    result.append(x)
 
     # only return b_boxes which are directly above a specific bbox
     # thus filtering b_boxes which doesnt fulfill this requirement
     # is needed when pages are not deskewed
-    result_direct = []
-    for x in result:
-        direct_above = True
-        for z in result:
-            if is_above(x, z):
-                direct_above = False
-                break
-        if direct_above:
-            result_direct.append(x)
-    return result_direct
+    return [x for x in result
+            if all(not is_above(x, z) for z in result)]
 
 
-def get_bboxs_below(bbox: BboxCluster, bbox_cluster: List[BboxCluster], height_threshold=100):
+def get_bboxs_below(bbox: BboxCluster, bbox_cluster: List[BboxCluster]):
     result = []
-    for x in bbox_cluster:
-        if set(sorted(list(itertools.chain.from_iterable(x.bbox)))) != set(
-                sorted(list(itertools.chain.from_iterable(bbox.bbox)))):
-            if is_below(x, bbox):
-                b1p1, b1p2 = bbox.get_bottom_line_of_bbox()
-                b2p1, p2p2 = x.get_top_line_of_bbox()
-                b1x1, b1y1 = b1p1
-                b2x2, b2y2 = p2p2
-                height = bbox.get_average_height()
-                difference = b2y2 - b1y1
-                if difference <= height:
-                    result.append(x)
+    for x in _different_bboxes(bbox, bbox_cluster):
+        if is_below(x, bbox):
+            difference = x.get_top_line_of_bbox()[1][1] - bbox.get_bottom_line_of_bbox()[0][1]
+            height = bbox.get_average_height()
+            if difference <= height:
+                result.append(x)
 
     # only return b_boxes which are directly above a specific bbox
     # thus filtering b_boxes which doesnt fulfill this requirement
     # is needed when pages are not deskewed
-    result_direct = []
-    for x in result:
-        direct_below = True
-        for z in result:
-            if is_below(x, z):
-                direct_below = False
-                break
-        if direct_below:
-            result_direct.append(x)
-    return result_direct
+    return [x for x in result
+            if all(not is_below(x, z) for z in result)]
 
 
-def analyse(baselines, image, image2, processes=1, use_improved_tops=True, process_pool: multiprocessing.Pool = None):
+def analyse(baselines, image, use_improved_tops=True):
     result = []
     heights = []
     length = []
     if baselines is None:
         return
     if use_improved_tops:
-        improved_tops = get_top_of_baselines_improved(baselines,image)
+        improved_tops = get_top_of_baselines_improved(baselines, image)
     else:
-        improved_tops = get_top_of_baselines(baselines,image)
+        improved_tops = get_top_of_baselines(baselines, image)
 
     for vec in improved_tops:
         result.append(vec)
         heights.append(vec[2])
         length.append(vec[0][-1][1])
-
-    if False:
-        for baseline in baselines:
-            if len(baseline) != 0:
-                index, height = get_top(image=image, baseline=baseline)
-                result.append((baseline, index, height))
-                heights.append(height)
-                length.append(baseline[-1][1])
 
     img = Image.fromarray((1 - image) * 255).convert('RGB')
     draw = ImageDraw.Draw(img)
@@ -218,7 +160,6 @@ def analyse(baselines, image, image2, processes=1, use_improved_tops=True, proce
               (255, 0, 255)]
 
     from segmentation.postprocessing.util import baseline_to_bbox, crop_image_by_polygon
-    height, width = image.shape
     result_dict = {}
     for ind, x in enumerate(result):
         pol = baseline_to_bbox(x[0],
@@ -229,7 +170,7 @@ def analyse(baselines, image, image2, processes=1, use_improved_tops=True, proce
         cut = crop_image_by_polygon(polygon=pol, image=image)
         from segmentation.postprocessing.util import get_stroke_width
         if cut[0] is not None:
-            score1, score2 = get_stroke_width(cut[0])
+            score1, _ = get_stroke_width(cut[0])
             baseline = x[0]
             p1 = baseline[0]
             p2 = baseline[-1]
@@ -452,7 +393,7 @@ def get_top(image, baseline, threshold=0.2, disable_now=False, max_steps=None):
     indexes = (np.array(y), np.array(x))
     max_black_pixels = 0
     height = 0
-    for i in range(min(np.min(indexes[0]), max_steps)): # do at most min_height steps, so that min(y) == 0
+    for i in range(min(np.min(indexes[0]), max_steps)):  # do at most min_height steps, so that min(y) == 0
         indexes = (indexes[0] - 1, indexes[1])
         if np.min(indexes[0]) == 0:
             height = height + 1
@@ -475,16 +416,17 @@ def get_top_of_baselines(baselines, image=None, threshold=0.2, process_pool: mul
     return out
 
 
-#def match_baselines_by_starting_point
+# def match_baselines_by_starting_point
 
-def get_top_of_baselines_improved(baselines, image: np.ndarray=None, threshold=0.2, process_pool: multiprocessing.Pool = None):
+def get_top_of_baselines_improved(baselines, image: np.ndarray = None, threshold=0.2,
+                                  process_pool: multiprocessing.Pool = None):
     # check for each bl if its continous
     for bl in baselines:
         assert len(bl) == (bl[-1][0] - bl[0][0] + 1), "Baseline must be continuous for get_top_of_baselines"
     baseline_ys = [list(zip(*bl))[1] for bl in baselines]
     DIST_INF = 1000000
     HEIGHT_MULTP = 1.5
-    HEIGHT_MULTP_MATCHING = 3 # this should be calculated as "avg line spacing"
+    HEIGHT_MULTP_MATCHING = 3  # this should be calculated as "avg line spacing"
 
     # for each baseline, match a baseline that is above
     # this matching is horribly inefficient and can be improved significantly
@@ -510,12 +452,12 @@ def get_top_of_baselines_improved(baselines, image: np.ndarray=None, threshold=0
 
             # calculate avg height
             bl_h = sum(c[1] for c in bl) / len(bl)
-            #mh = sum(c[1] for c in match_cand if c[0] <= bl[-1][0]) / len (match_cand) # do not do this
+            # mh = sum(c[1] for c in match_cand if c[0] <= bl[-1][0]) / len (match_cand) # do not do this
             # only take the avg height until the short bl ends
             mh = sum(trunc_match_cand_ys) / len(trunc_match_cand_ys)
-            if mh > bl_h: continue # match candidate lies below
+            if mh > bl_h: continue  # match candidate lies below
             # score is height difference
-            dist = abs(mh-bl_h)
+            dist = abs(mh - bl_h)
             if dist < best_dist:
                 best_dist = dist
 
@@ -523,11 +465,12 @@ def get_top_of_baselines_improved(baselines, image: np.ndarray=None, threshold=0
 
     out = []
     for match in matches:
-        bl, tb, height = get_top_wrapper(match[0],image, threshold=threshold)
+        bl, tb, height = get_top_wrapper(match[0], image, threshold=threshold)
         if match[1] > height * HEIGHT_MULTP_MATCHING or match[1] == DIST_INF:
             perfect_height_max = height * HEIGHT_MULTP_MATCHING
             # without max steps, this can take way too long for broken inputs
-            _ , perfect_height = get_top(image,match[0],threshold=0.001, disable_now=True, max_steps=int(perfect_height_max + 1))
+            _, perfect_height = get_top(image, match[0], threshold=0.001, disable_now=True,
+                                        max_steps=int(perfect_height_max + 1))
             if perfect_height < perfect_height_max:
                 height = perfect_height
             else:
@@ -549,73 +492,3 @@ def get_top_of_baselines_improved(baselines, image: np.ndarray=None, threshold=0
         out.append(MovedBaselineTop(bl, [(b[0], b[1] - height) for b in bl], height))
 
     return out
-
-
-def get_top_alternative(image, baseline, threshold=0.1, kernel=3):
-    x, y = zip(*baseline)
-    indexes = (np.array(y), np.array(x))
-    before = 0
-    height = 0
-    line_blackness = []
-
-    while True:
-        x_indexes = np.empty(0, dtype=int)
-        y_indexes = np.empty(0, dtype=int)
-        for i in range(-kernel, kernel + 1, 1):
-            x_indexes = np.concatenate((x_indexes, indexes[0] - (i + height)))
-            y_indexes = np.concatenate((y_indexes, indexes[1]))
-
-        indexes_to_test = (x_indexes, y_indexes)
-        now = np.sum(image[indexes_to_test])
-        if height > 5 and np.mean(line_blackness[-2]) < np.max(line_blackness) * 0.2:
-            break
-        if height > 3:
-            line_blackness.append(now)
-
-        print("before {}, height {} now {}".format(before, height, now))
-        height = height + 1
-        before = now if now > before else before
-    height = height - 2
-    return list(zip(indexes[1] - height, indexes[0])), height
-
-
-if __name__ == '__main__':
-    files = [
-        "/mnt/sshfs/scratch/Datensets_Bildverarbeitung/page_segmentation/OCR-D/images/reinkingk_policey_1653_0016.png"]
-    model_paths = ["/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/adam_unet_efficientnet-b3_40_1.torch"]
-    ''',
-     "/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/adam_unet_efficientnet-b5_20_1.torch",
-     "/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/adam_unet_efficientnet-b4_20_1.torch",
-     "/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/adam_unet_inceptionresnetv2_20_1.torch",
-     "/home/alexander/Dokumente/dataset/READ-ICDAR2019-cBAD-dataset/adam_unet_resnet50_20_1.torch"]
-    '''
-    networks = []
-    from segmentation.scripts.predict import Ensemble
-    from PIL import Image, ImageDraw, ImageFont
-
-    files0 = list(itertools.chain.from_iterable(
-        [glob.glob("/mnt/sshfs/scratch/Datensets_Bildverarbeitung/page_segmentation/OCR-D/images/*.png")]))
-    files1 = list(itertools.chain.from_iterable(
-        [glob.glob("/mnt/sshfs/scratch/Datensets_Bildverarbeitung/page_segmentation/norbert_fischer/lgt/bin/*.png")]))
-    files2 = list(itertools.chain.from_iterable(
-        [glob.glob("/mnt/sshfs/scratch/Datensets_Bildverarbeitung/page_segmentation/narren/GW5049/images/*.png")]))
-    for x in model_paths:
-        p_setting = PredictorSettings(MODEL_PATH=x)
-        from segmentation.network import Network
-        network = Network(p_setting)
-        networks.append(network)
-    ensemble = Ensemble(networks)
-    for file in files0:
-        p_map, scale_factor = ensemble(file, scale_area=1000000)
-        baselines = extract_baselines_from_probability_map(p_map)
-
-        image = Image.open(file)
-        image = image.resize((int(scale_factor * image.size[0]), int(scale_factor * image.size[1])))
-
-        from segmentation.preprocessing.basic_binarizer import gauss_threshold
-        from segmentation.preprocessing.util import to_grayscale
-
-        grayscale = to_grayscale(np.array(image))
-        binary = gauss_threshold(image=grayscale) / 255
-
-        analyse(baselines=baselines, image=binary, image2=image)
