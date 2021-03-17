@@ -3,11 +3,11 @@ torch
 PageXML-to-Mask-converter
 torchvision
 pillow~=6.2.1
-numpy~=1.17.4
+numpy
 ttach
 setuptools~=41.6.0
 matplotlib~=3.1.1
-pandas~=0.25.3
+pandas
 seaborn~=0.9.0
 tqdm~=4.38.0
 albumentations~=0.4.2
@@ -19,7 +19,7 @@ lxml
 shapely~=1.7.0
 future~=0.18.2
 scikit-learn
-scipy~=1.3.2
+scipy~=1.6.1
 dataclasses_json
 dataclasses
 adabelief-pytorch
