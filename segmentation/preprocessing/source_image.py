@@ -1,9 +1,11 @@
 from PIL import Image
 
 from segmentation.dataset import get_rescale_factor, rescale_pil
-from segmentation.preprocessing.ocrupus import binarize
 
 import numpy as np
+from doxapy.binarization import BinarizationAlgorithm, binarize, _needs_binarization
+
+
 
 class SourceImage:
     fail_on_binarize = False
@@ -37,8 +39,16 @@ class SourceImage:
 
     def binarized(self):
         if self.binarized_cache is None:
-            self.binarized_cache = binarize(self.array().astype("float64"),
-                                            assert_binarized=SourceImage.fail_on_binarize).astype("uint8")
+            if SourceImage.fail_on_binarize:
+                if len(self.array().shape) == 3 or _needs_binarization(self.array()):
+                    raise AssertionError("Image should already be binarized")
+                return self.array()
+            else:
+                self.binarized_cache = binarize(self.array(), BinarizationAlgorithm.ISauvola)*np.float32(1)
+                # Deprecated: Old Ocropus binarization can also be handled by the new binarizer library
+                # self.binarized_cache = binarize(self.array().astype("float64"),
+                #                            assert_binarized=SourceImage.fail_on_binarize).astype("uint8")
+
         return self.binarized_cache
 
     def array(self):
