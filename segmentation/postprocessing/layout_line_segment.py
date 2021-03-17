@@ -1,36 +1,30 @@
-import ctypes
+import itertools
+import heapq
 import itertools
 import json
-import multiprocessing
+import multiprocessing.sharedctypes
+from collections import namedtuple, defaultdict
 from dataclasses import dataclass
 from enum import Enum
-from functools import reduce
-
-import multiprocessing.sharedctypes
-
-from collections import namedtuple, defaultdict, deque
 from typing import List, Tuple, Set
-import heapq
-
-from segmentation.postprocessing.baselines_util import make_baseline_continous, simplify_baseline
-from segmentation.postprocessing.data_classes import PredictionResult, BaselineResult, BboxCluster
-from segmentation.postprocessing.debug_draw import DebugDraw
-from segmentation.postprocessing.layout_analysis import get_top_of_baselines_improved, get_top, get_top_of_baselines
-from segmentation.postprocessing.util import show_images, NewImageReconstructor
-from segmentation.preprocessing.source_image import SourceImage
 
 import numpy as np
 import scipy
 import scipy.ndimage.measurements
-from scipy.spatial import ConvexHull
-
 import skimage.draw
+from scipy.spatial import ConvexHull
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
-
+from segmentation.postprocessing.baselines_util import make_baseline_continous, simplify_baseline
+from segmentation.postprocessing.data_classes import PredictionResult, BboxCluster
+from segmentation.postprocessing.debug_draw import DebugDraw
+from segmentation.postprocessing.layout_analysis import get_top_of_baselines
+from segmentation.postprocessing.util import NewImageReconstructor
+from segmentation.preprocessing.source_image import SourceImage
 # find a path that divides the two baselines
-from segmentation.util import PerformanceCounter, logger
+from segmentation.postprocessing.layout_settings import LayoutProcessingSettings
+from segmentation.util import logger
 
 QueueElem = namedtuple("QueueElem", "f d point parent")
 # f is dist + heur, d is distance, n is node, p is parent
@@ -236,7 +230,7 @@ def shorten_cutline(cutout_line: List[Tuple], bl : List[Tuple]):
     maxb = bl[-1][0]
     return [co for co in cutout_line if minb <= co[0] <= maxb]
 
-def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionResult, bbox: BboxCluster, process_pool :multiprocessing.Pool = None) -> List[CutoutElem]:
+def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionResult, bbox: BboxCluster, settings: LayoutProcessingSettings) -> List[CutoutElem]:
     baselines_cont = [make_baseline_continous(bl) for bl in prediction.baselines]
     if prediction.toplines is not None:
         toplines_cont = [make_baseline_continous(bl) if bl is not None else None for bl in prediction.toplines]
@@ -324,7 +318,7 @@ def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionRes
     # fix first line
     height_diff = calculate_height_diff(pairs[0][0], pairs[0][1])
     first_tc = find_dividing_path(inv_binary_dilated,
-                                  moveline(pairs[0][0], (-2)*height_diff, int(inv_binary.shape[0])), pairs[0][1],
+                                  moveline(pairs[0][0], (settings.schnip_schnip_height_diff_factor)*height_diff, int(inv_binary.shape[0])), pairs[0][1],
                                   starting_bias=DividingPathStartingBias.BOTTOM)
     if len(pairs) > 1:
         #first_bc = find_dividing_path(inv_binary, pairs[0][0], pairs[1][1])
