@@ -46,6 +46,8 @@ def parse_args():
     parser.add_argument("--assert_binarized", action="store_true", help="Do not allow binarization of the image file")
     parser.add_argument("--output_path_debug_images", type=str, default=None, help="Directory of the debug images")
     parser.add_argument("--show_fix_line_endings", action="store_true", help="Show debug information for the line endings fix")
+    parser.add_argument("--height_diff_factor", type=int, default=-2,
+                        help="line height factor for SchnipSchnip. Use more negative value, if detected lines are not high enough")
     return parser.parse_args()
 
 
@@ -291,6 +293,7 @@ def mp_process(args):
         for bl in scaled_prediction.baselines:
             bl = list(filter(allowed_func,bl))
             new_baselines.append(bl)
+        new_baselines = [bl for bl in new_baselines if bl]
         scaled_prediction.baselines = new_baselines
 
     layout_settings = LayoutProcessingSettings.from_cmdline_args(args)
