@@ -8,6 +8,7 @@ import os
 import torch
 
 from segmentation.postprocessing.baseline_extraction import extract_baselines_from_probability_map
+from segmentation.postprocessing.baseline_graph import BaselineGraph
 from segmentation.postprocessing.data_classes import PredictionResult
 from segmentation.postprocessing.layout_analysis import get_top_of_baselines
 from segmentation.preprocessing.source_image import SourceImage

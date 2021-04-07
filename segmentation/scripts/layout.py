@@ -14,7 +14,7 @@ from segmentation.postprocessing.data_classes import PredictionResult, BboxClust
 from segmentation.postprocessing.debug_draw import DebugDraw
 from segmentation.postprocessing.layout_analysis import get_top_of_baselines, get_top_of_baselines_improved, analyse, connect_bounding_box
 from segmentation.postprocessing.layout_line_segment import schnip_schnip_algorithm, cutout_to_polygon, PageContours, \
-    fix_coutout_lineendings, LinePoly, CutoutElem
+    fix_coutout_lineendings, LinePoly, CutoutElem, schnip_schnip_algorithm_old
 from segmentation.preprocessing.source_image import SourceImage
 from segmentation.postprocessing.baselines_util import scale_baseline, make_baseline_continous, simplify_baseline, flip_baseline
 from segmentation.util import PerformanceCounter, logger
@@ -42,6 +42,7 @@ def parse_args():
     parser.add_argument("--output_xml_path", type=str, default=None, help="Directory of the XML output")
     parser.add_argument("--layout_prediction", action="store_true", help="Generates Layout of the page "
                                                                          "based on the baselines")
+    parser.add_argument("--fix_baseline_points", action="store_true",help="Remove Baseline Points which are outsite the \"legal\" image area")
     parser.add_argument("--assert_binarized", action="store_true", help="Do not allow binarization of the image file")
     parser.add_argument("--output_path_debug_images", type=str, default=None, help="Directory of the debug images")
     parser.add_argument("--show_fix_line_endings", action="store_true", help="Show debug information for the line endings fix")
@@ -179,7 +180,7 @@ def process_layout(prediction, scaled_image: SourceImage, process_pool, settings
 
             with PerformanceCounter("SchnipSchnip"):
                 for bbox in analyzed_content.bboxs:
-                    cutouts = schnip_schnip_algorithm(scaled_image, prediction, bbox, settings)
+                    cutouts = schnip_schnip_algorithm_old(scaled_image, prediction, bbox, settings)
                     if settings.fix_line_endings:
                         contours = PageContours(scaled_image, dilation_amount=1)
                         lines = [fix_coutout_lineendings(co,contours, i ) for i, co in enumerate(cutouts)]
@@ -282,6 +283,15 @@ def mp_process(args):
     scaled_prediction = PredictionResult([scale_baseline(bl, scale_factor) for bl in prediction.baselines],
                                          [source_image.array().shape[1], source_image.array().shape[0]], 1)
 
+    if args.fix_baseline_points:
+        def allowed_func(p):
+            return 0 <= p[0] < scaled_prediction.prediction_shape[1] \
+                   and 0 <= p[1] < scaled_prediction.prediction_shape[0]
+        new_baselines = []
+        for bl in scaled_prediction.baselines:
+            bl = list(filter(allowed_func,bl))
+            new_baselines.append(bl)
+        scaled_prediction.baselines = new_baselines
 
     layout_settings = LayoutProcessingSettings.from_cmdline_args(args)
 
