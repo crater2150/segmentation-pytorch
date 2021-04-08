@@ -45,6 +45,7 @@ class SourceImage:
                 return self.array()
             else:
                 self.binarized_cache = binarize(self.array(), BinarizationAlgorithm.ISauvola)*np.float32(1)
+                assert self.binarized_cache.shape[:2] == self.array().shape[:2]
                 # Deprecated: Old Ocropus binarization can also be handled by the new binarizer library
                 # self.binarized_cache = binarize(self.array().astype("float64"),
                 #                            assert_binarized=SourceImage.fail_on_binarize).astype("uint8")
