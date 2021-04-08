@@ -282,19 +282,16 @@ def mp_process(args):
     """
     # scale the Baselines to the binarized image's size and do the processing in image space
     scale_factor = (source_image.array().shape[0] / prediction.prediction_shape[0])
-    scaled_prediction = PredictionResult([scale_baseline(bl, scale_factor) for bl in prediction.baselines],
-                                         [source_image.array().shape[1], source_image.array().shape[0]], 1)
+    scaled_prediction = PredictionResult(baselines=[scale_baseline(bl, scale_factor) for bl in prediction.baselines],
+                                         prediction_shape=list(source_image.array.shape()),
+                                         prediction_scale_factor=1)
 
     if args.fix_baseline_points:
         def allowed_func(p):
             return 0 <= p[0] < scaled_prediction.prediction_shape[1] \
                    and 0 <= p[1] < scaled_prediction.prediction_shape[0]
-        new_baselines = []
-        for bl in scaled_prediction.baselines:
-            bl = list(filter(allowed_func,bl))
-            new_baselines.append(bl)
-        new_baselines = [bl for bl in new_baselines if bl]
-        scaled_prediction.baselines = new_baselines
+        new_baselines = [list(filter(allowed_func, bl)) for bl in scaled_prediction.baselines]
+        scaled_prediction.baselines = [bl for bl in new_baselines if bl]
 
     layout_settings = LayoutProcessingSettings.from_cmdline_args(args)
 
