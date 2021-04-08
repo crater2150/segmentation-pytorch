@@ -319,7 +319,8 @@ def schnip_schnip_algorithm_old(scaled_image: SourceImage, prediction: Predictio
     # fix first line
     height_diff = calculate_height_diff(pairs[0][0], pairs[0][1])
     first_tc = find_dividing_path(inv_binary_dilated,
-                                  moveline(pairs[0][0], (settings.schnip_schnip_height_diff_factor)*height_diff, int(inv_binary.shape[0])), pairs[0][1],
+                                  cut_above=moveline(pairs[0][0], (settings.schnip_schnip_height_diff_factor)*height_diff, int(inv_binary.shape[0])),
+                                  cut_below=moveline(pairs[0][1], int(height_diff * 0.3), int(inv_binary.shape[0])),
                                   starting_bias=DividingPathStartingBias.BOTTOM)
     if len(pairs) > 1:
         #first_bc = find_dividing_path(inv_binary, pairs[0][0], pairs[1][1])
