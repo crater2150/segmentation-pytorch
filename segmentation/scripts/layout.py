@@ -283,7 +283,7 @@ def mp_process(args):
     # scale the Baselines to the binarized image's size and do the processing in image space
     scale_factor = (source_image.array().shape[0] / prediction.prediction_shape[0])
     scaled_prediction = PredictionResult(baselines=[scale_baseline(bl, scale_factor) for bl in prediction.baselines],
-                                         prediction_shape=list(source_image.array.shape()),
+                                         prediction_shape=list(source_image.array().shape),
                                          prediction_scale_factor=1)
 
     if args.fix_baseline_points:
