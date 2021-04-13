@@ -233,8 +233,8 @@ def shorten_cutline(cutout_line: List[Tuple], bl : List[Tuple]):
     return [co for co in cutout_line if minb <= co[0] <= maxb]
 
 def schnip_schnip_algorithm_old(scaled_image: SourceImage, prediction: PredictionResult, bbox: BboxCluster, settings: LayoutProcessingSettings) -> List[CutoutElem]:
-    himg = _build_bl_growth_img(scaled_image.binarized(), np.array(list(itertools.chain.from_iterable(prediction.baselines))))
-    show_images([himg])
+    #himg = _build_bl_growth_img(scaled_image.binarized(), np.array(list(itertools.chain.from_iterable(prediction.baselines))))
+    #show_images([himg])
     baselines_cont = [make_baseline_continous(bl) for bl in prediction.baselines]
     if prediction.toplines is not None:
         toplines_cont = [make_baseline_continous(bl) if bl is not None else None for bl in prediction.toplines]
