@@ -172,13 +172,13 @@ def find_dividing_path(inv_binary_img: np.ndarray, cut_above, cut_below, startin
         visited.add(node.point)
         if node.point[0] == end_x:
             path = make_path(node, start_elem)
-            if True:
+            if False:
                 dd = DebugDraw(SourceImage.from_numpy(np.array(255*(1 - inv_binary_img),dtype=np.uint8)))
                 dd.draw_baselines([tl, bl, path])
                 img = dd.image()
-                global seq_number
-                img.save(f"/tmp/seq{seq_number}.png")
-                seq_number += 1
+                #global seq_number
+                #img.save(f"/tmp/seq{seq_number}.png")
+                #seq_number += 1
                 #dd.show()
             return path
         for child in find_children_rect(node.point, start_x):
@@ -346,17 +346,47 @@ def schnip_schnip_algorithm_old(scaled_image: SourceImage, prediction: Predictio
                                     starting_bias=DividingPathStartingBias.TOP)
         bl_cutouts = bl_cutouts + [CutoutElem(pairs[-1][0],tc=shorten_cutline(bot_tc, pairs[-1][0]), bc=shorten_cutline(bot_bc,pairs[-1][0]))]
 
+    def fix_cutout_overgrow(cutout: CutoutElem):
+        # calculate the median cutout height
+        heights = [abs(a[1] - b[1]) for (a,b) in zip(cutout.bc, cutout.tc)]
+        tc_off = [abs(a[1] - b[1]) for (a,b) in zip(cutout.tc, cutout.bl)]
+        bc_off = [abs(a[1] - b[1]) for (a, b) in zip(cutout.bc, cutout.bl)]
+        med_tc_off = float(np.median(tc_off))
+        med_bc_off = float(np.median(bc_off))
+
+        med_height = float(np.median(heights))
+        ntc = []
+        nbc = []
+        for tc, bl, bc, height, tco, bco in zip(cutout.tc, cutout.bl, cutout.bc, heights, tc_off, bc_off):
+            if height > med_height * 1.25:
+                # check if we broke out to the top or the bottom
+                if abs(tc[1] - bl[1]) - med_tc_off > abs(bc[1] - bl[1]) - med_bc_off:
+                    # we broke from the tc
+                    ntc.append((tc[0],bl[1] - med_tc_off))
+                    nbc.append(bc)
+                else:
+                    ntc.append(tc)
+                    nbc.append((bc[0],bl[1] + med_bc_off))
+            else:
+                ntc.append(tc)
+                nbc.append(bc)
+        return CutoutElem(cutout.bl, ntc, nbc)
+
+    #bl_cutouts = [fix_cutout_overgrow(c) for c in bl_cutouts]
+
+
+
     return bl_cutouts
 
 def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionResult, bbox: BboxCluster, settings: LayoutProcessingSettings) -> List[CutoutElem]:
     blg = BaselineGraph.build_graph(prediction.baselines, scaled_image.array().shape[1], scaled_image.array().shape[0])
-    blg.visualize()
+    blg.visualize(scaled_image.array())
+
     baselines_cont = [x.baseline.bl for x in blg.nodes]
 
     inv_binary =  1 - scaled_image.binarized()
     inv_binary_dilated = scipy.ndimage.binary_dilation(inv_binary)
     calculated_tops = [np.array(x[1]).tolist() for x in get_top_of_baselines(baselines_cont,inv_binary, process_pool=None)]
-
     
 
     #with PerformanceCounter("Hashing"):
@@ -507,7 +537,8 @@ class PageContours:
     def __init__(self, image: SourceImage, dilation_amount=0):
         self.binarized = image.binarized() == 0
         if dilation_amount > 0:
-            self.binarized = scipy.ndimage.binary_dilation(self.binarized)
+            #self.binarized = scipy.ndimage.binary_dilation(self.binarized)
+            self.binarized = scipy.ndimage.binary_closing(self.binarized)
         labled, count = scipy.ndimage.measurements.label(self.binarized,np.array([[1,1,1]]*3)) # 8 connectivity
         self.labeled = labled
         self.count = int(count)
@@ -532,6 +563,21 @@ class PageContours:
         cc = self[label]
         bb = cc.bbox
         return self.labeled[bb.y1 : bb.y2, bb.x1 : bb.x2]
+
+    def find_labels_intersecting_cutout(self, co: CutoutElem):
+        r = []
+        c = []
+        r += [b[1] for b in co.bc]
+        c += [b[0] for b in co.bc]
+        r += [t[1] for t in co.tc]
+        c += [t[0] for t in co.tc]
+        return self.find_labels_intersecting_polygon(r,c)
+
+    def find_labels_intersecting_polygon(self, r, c):
+        points = skimage.draw.polygon(r, c)
+        # find all labels at these points
+        labels = np.unique(self.labeled[points])
+        return set(int(x) for x in labels if x > 0)
 
 
 
@@ -586,85 +632,108 @@ def get_contour_convex(relevant: List[int], contours: PageContours) -> List[Tupl
     return poly
 
 
-def fix_coutout_lineendings(cutout: CutoutElem, contours: PageContours, line_id = None) -> LinePoly:
-    cutout_poly = cutout_to_polygon(cutout, None)
-    fallback = LinePoly(cutout_poly, cutout)
+def fix_cutout_lineendings(cutouts: List[CutoutElem], contours: PageContours) -> List[LinePoly]:
+    line_polys = []
 
-    try: # TODO: bad hgack
-        beg_lines = [LineSegment(cutout.bc[0][0], cutout.bc[0][1], cutout.bl[0][0], cutout.bl[0][1]),
-                     LineSegment(cutout.bl[0][0], cutout.bl[0][1], cutout.tc[0][0], cutout.tc[0][1])]
-        end_lines = [LineSegment(cutout.bc[-1][0], cutout.bc[-1][1], cutout.bl[-1][0], cutout.bl[-1][1]),
-                     LineSegment(cutout.bl[-1][0], cutout.bl[-1][1], cutout.tc[-1][0], cutout.tc[-1][1])]
-        logger.info(f"Beg Lines: {beg_lines}\n")
-        logger.info(f"End Lines: {end_lines}\n")
-        int_labels_beg = find_intersecting_labels(beg_lines, contours)
-        int_labels_end = find_intersecting_labels(end_lines, contours)
-        logger.info(f"Beg Labels: {int_labels_beg}\n")
-        logger.info(f"End Labels: {int_labels_end}\n")
-        # if the label is approximately the height of the line
-        accepted_labels_beg = []
-        accepted_labels_end = []
-        # calculate average cutout height
-        avg_line_height = cutout_average_height(cutout_get_matched_pairs(cutout))
+    # make a dict that tells us which line_ids are covering (partly?) a contour
+    contour_hit_by = defaultdict(set)
+    for line_id, co in enumerate(cutouts):
+        hit_by = contours.find_labels_intersecting_cutout(co)
+        for contour in hit_by:
+            contour_hit_by[contour].add(line_id)
 
-        accepted_labels_beg = []
-        int_labels_beg = list(int_labels_beg)
-        int_labels_end = list(int_labels_end)
-        for cc in map(lambda x: contours[x], int_labels_beg):
-            if cc.height <= avg_line_height * 1.1 and \
-              cc.bbox.y2 >= cutout.bl[0][1] - (avg_line_height / 2) and \
-              cc.bbox.y2 <= cutout.bc[0][1] + (avg_line_height) * 0.2: # TODO: do the same for the top cutout (but probably with more offset)
-                logger.info(f"Accepted: {cc} for {line_id}\n")
-                accepted_labels_beg.append(cc.label)
+    contours_used_up = set()
 
-        for cc in map(lambda x: contours[x], int_labels_end):
-            if cc.height <= avg_line_height * 1.1 and \
-              cc.bbox.y2 >= cutout.bl[-1][1] - (avg_line_height / 2) and \
-              cc.bbox.y2 <= cutout.bc[-1][1] + (avg_line_height) * 0.2:
-                logger.info(f"Accepted end: {cc} for {line_id}\n")
-                accepted_labels_end.append(cc.label)
+    for line_id, cutout in enumerate(cutouts):
+        cutout_poly = cutout_to_polygon(cutout, None)
+        fallback = LinePoly(cutout_poly, cutout)
 
-        if len(accepted_labels_end) == 0 and len(accepted_labels_beg) == 0:
-            return fallback  # early stopping
+        try: # TODO: bad hgack
+            beg_lines = [LineSegment(cutout.bc[0][0], cutout.bc[0][1], cutout.bl[0][0], cutout.bl[0][1]),
+                         LineSegment(cutout.bl[0][0], cutout.bl[0][1], cutout.tc[0][0], cutout.tc[0][1])]
+            end_lines = [LineSegment(cutout.bc[-1][0], cutout.bc[-1][1], cutout.bl[-1][0], cutout.bl[-1][1]),
+                         LineSegment(cutout.bl[-1][0], cutout.bl[-1][1], cutout.tc[-1][0], cutout.tc[-1][1])]
+            logger.info(f"Beg Lines: {beg_lines}\n")
+            logger.info(f"End Lines: {end_lines}\n")
+            int_labels_beg = find_intersecting_labels(beg_lines, contours)
+            int_labels_end = find_intersecting_labels(end_lines, contours)
+            logger.info(f"Beg Labels: {int_labels_beg}\n")
+            logger.info(f"End Labels: {int_labels_end}\n")
+            # if the label is approximately the height of the line
+            accepted_labels_beg = []
+            accepted_labels_end = []
+            # calculate average cutout height
+            avg_line_height = cutout_average_height(cutout_get_matched_pairs(cutout))
 
-        pll = [Polygon(cutout_poly)]
-        assert pll[0].is_valid
-        if len(accepted_labels_beg) > 0:
-            ch_beg = get_contour_convex(list(set(accepted_labels_beg)), contours)
-            pll.append(Polygon(ch_beg).buffer(1,cap_style=2,join_style=3))
-        if len(accepted_labels_end) > 0:
-            ch_end = get_contour_convex(list(set(accepted_labels_end)), contours)
-            pll.append(Polygon(ch_end).buffer(1,cap_style=2,join_style=3))
+            accepted_labels_beg = []
+            int_labels_beg = list(int_labels_beg)
+            int_labels_end = list(int_labels_end)
+            for cc in map(lambda x: contours[x], int_labels_beg):
+                cc_hit_by = contour_hit_by[cc.label]
+                if len(cc_hit_by) > 1 or cc.label not in cc_hit_by: continue # do not use this label, it's cursed
+                if cc.label in contours_used_up: continue  # dont use this, because it has already been used
+                if cc.height <= avg_line_height * 1.1 and \
+                  cc.bbox.y2 >= cutout.bl[0][1] - (avg_line_height / 2) and \
+                  cc.bbox.y2 <= cutout.bc[0][1] + (avg_line_height) * 0.2: # TODO: do the same for the top cutout (but probably with more offset)
+                    logger.info(f"Accepted: {cc} for {line_id}\n")
+                    accepted_labels_beg.append(cc.label)
 
-        poly_union = unary_union(pll)
-        if poly_union.geom_type != "Polygon":
-            logger.warning(f"Result is not a polygon. Is: {poly_union.geom_type}")
-            return fallback
-        points = [(round(x[0]), round(x[1])) for x in poly_union.exterior.coords]
+            for cc in map(lambda x: contours[x], int_labels_end):
+                cc_hit_by = contour_hit_by[cc.label]
+                if len(cc_hit_by) > 1 or cc.label not in cc_hit_by: continue  # do not use this label, it's cursed
+                if cc.label in contours_used_up: continue # dont use this, because it has already been used
+                if cc.height <= avg_line_height * 1.1 and \
+                  cc.bbox.y2 >= cutout.bl[-1][1] - (avg_line_height / 2) and \
+                  cc.bbox.y2 <= cutout.bc[-1][1] + (avg_line_height) * 0.2:
+                    logger.info(f"Accepted end: {cc} for {line_id}\n")
+                    accepted_labels_end.append(cc.label)
 
-        x,y = poly_union.exterior.xy
-        rec = NewImageReconstructor(contours.labeled, contours.count + 1, background_color=(255, 255, 255),
-                                    undefined_color=(0, 0, 0))
-        for lbl in itertools.chain(int_labels_beg, int_labels_end):
-            if lbl in set(accepted_labels_beg).union(set(accepted_labels_end)):
-                rec.label(lbl, (50, 0, 0))
-            else:
-                rec.label(lbl, (0, 0, 100))
-    
-        """
-        from matplotlib import pyplot as plt
-        plt.imshow(rec.get_image())
-        plt.plot(x,y,color='#ff3333', alpha=1, linewidth=3, solid_capstyle='round')
-        cx, cy = [x[0] for x in cutout_poly], [x[1] for x in cutout_poly]
-        cx.append(cx[0])
-        cy.append(cy[0])
-        plt.plot(cx, cy, color="#6699cc", alpha=1, linewidth=3)
-        plt.show()
-        """
-        return LinePoly(points, cutout)
+            if len(accepted_labels_end) == 0 and len(accepted_labels_beg) == 0:
+                raise Exception("early stopping")# early stopping
 
-    except:
-        return fallback
+            # add the accepted labels to the list of labels that cannot be acced anymore
+            contours_used_up = contours_used_up.union(set(accepted_labels_beg).union(accepted_labels_end))
+
+            pll = [Polygon(cutout_poly)]
+            assert pll[0].is_valid
+            if len(accepted_labels_beg) > 0:
+                ch_beg = get_contour_convex(list(set(accepted_labels_beg)), contours)
+                pll.append(Polygon(ch_beg).buffer(1,cap_style=2,join_style=3))
+            if len(accepted_labels_end) > 0:
+                ch_end = get_contour_convex(list(set(accepted_labels_end)), contours)
+                pll.append(Polygon(ch_end).buffer(1,cap_style=2,join_style=3))
+
+            poly_union = unary_union(pll)
+            if poly_union.geom_type != "Polygon":
+                logger.warning(f"Result is not a polygon. Is: {poly_union.geom_type}")
+                raise Exception("early stopping")
+            points = [(round(x[0]), round(x[1])) for x in poly_union.exterior.coords]
+
+            x,y = poly_union.exterior.xy
+            rec = NewImageReconstructor(contours.labeled, contours.count + 1, background_color=(255, 255, 255),
+                                        undefined_color=(0, 0, 0))
+            for lbl in itertools.chain(int_labels_beg, int_labels_end):
+                if lbl in set(accepted_labels_beg).union(set(accepted_labels_end)):
+                    rec.label(lbl, (50, 0, 0))
+                else:
+                    rec.label(lbl, (0, 0, 100))
+
+            """
+            from matplotlib import pyplot as plt
+            plt.imshow(rec.get_image())
+            plt.plot(x,y,color='#ff3333', alpha=1, linewidth=3, solid_capstyle='round')
+            cx, cy = [x[0] for x in cutout_poly], [x[1] for x in cutout_poly]
+            cx.append(cx[0])
+            cy.append(cy[0])
+            plt.plot(cx, cy, color="#6699cc", alpha=1, linewidth=3)
+            plt.show()
+            """
+            line_polys.append(LinePoly(points,cutout))
+
+        except:
+            line_polys.append(fallback)
+
+    return line_polys
 
 
 

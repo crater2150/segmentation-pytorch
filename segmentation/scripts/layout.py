@@ -14,7 +14,7 @@ from segmentation.postprocessing.data_classes import PredictionResult, BboxClust
 from segmentation.postprocessing.debug_draw import DebugDraw
 from segmentation.postprocessing.layout_analysis import get_top_of_baselines, get_top_of_baselines_improved, analyse, connect_bounding_box
 from segmentation.postprocessing.layout_line_segment import schnip_schnip_algorithm, cutout_to_polygon, PageContours, \
-    fix_coutout_lineendings, LinePoly, CutoutElem, schnip_schnip_algorithm_old
+    fix_cutout_lineendings, LinePoly, CutoutElem, schnip_schnip_algorithm_old
 from segmentation.preprocessing.source_image import SourceImage
 from segmentation.postprocessing.baselines_util import scale_baseline, make_baseline_continous, simplify_baseline, flip_baseline
 from segmentation.util import PerformanceCounter, logger
@@ -48,6 +48,7 @@ def parse_args():
     parser.add_argument("--show_fix_line_endings", action="store_true", help="Show debug information for the line endings fix")
     parser.add_argument("--height_diff_factor", type=int, default=-2,
                         help="line height factor for SchnipSchnip. Use more negative value, if detected lines are not high enough")
+    parser.add_argument("--single_threaded", action="store_true", help="Do not use multiprocessing")
     return parser.parse_args()
 
 
@@ -166,7 +167,7 @@ def generate_lines_polygons(prediction: PredictionResult, scaled_image: SourceIm
 
     cutouts = [ CutoutElem(bl, tc, bc) for bl, tc, bc in zip(baselines, baseline_tops, baseline_bottoms) ]
     contours = PageContours(scaled_image, dilation_amount=1)
-    polys = [fix_coutout_lineendings(co, contours, i).poly for i, co in enumerate(cutouts)]
+    polys = [co.poly for co  in fix_cutout_lineendings(cutouts, contours)]
     return polys
 
 
@@ -185,7 +186,7 @@ def process_layout(prediction, scaled_image: SourceImage, process_pool, settings
                     cutouts = schnip_schnip_algorithm_old(scaled_image, prediction, bbox, settings)
                     if settings.fix_line_endings:
                         contours = PageContours(scaled_image, dilation_amount=1)
-                        lines = [fix_coutout_lineendings(co,contours, i ) for i, co in enumerate(cutouts)]
+                        lines = fix_cutout_lineendings(cutouts, contours)
                     else:
                         cutout_polys = [cutout_to_polygon(co, scaled_image) for co in cutouts]
                         lines = [LinePoly(poly, co) for poly,co in zip(cutout_polys, cutouts)]
@@ -322,7 +323,7 @@ def main():
 
 
     data = zip(sorted(glob.glob(args.prediction)), itertools.repeat(args))
-    if args.show_layout or args.show_lines or args.show_baselines:
+    if args.show_layout or args.show_lines or args.show_baselines or args.single_threaded:
         for _ in map(mp_process, data):
             pass
     else:

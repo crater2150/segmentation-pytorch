@@ -119,7 +119,7 @@ class BaselineGraph:
     nodes: List[BaselineGraphNode]
     baseline_plot: BaselinePlot
     @staticmethod
-    def build_graph(baselines: List[Tuple[int, int]], img_w: int, img_h: int):
+    def build_graph(baselines: List[List[Tuple[int, int]]], img_w: int, img_h: int):
         gp = BaselinePlot.from_baselines(baselines, img_w, img_h)
         nodes = []
 
@@ -129,18 +129,24 @@ class BaselineGraph:
             nodes.append(BaselineGraphNode(bl, above, below))
         return BaselineGraph(nodes, gp)
 
-    def visualize(self):
+    def visualize(self, base_img):
         # make the labeled image rgb
-        rgb = np.where(self.baseline_plot.labeled > 0, np.uint8(0), np.uint8(255))
-        rgb = np.dstack([rgb]*3)
+        if base_img is not None:
+            rgb = base_img
+            if len(rgb.shape) == 2:
+                rgb = np.dstack([rgb] * 3)
+        else:
+            rgb = np.where(self.baseline_plot.labeled > 0, np.uint8(0), np.uint8(255))
+            rgb = np.dstack([rgb]*3)
         from PIL import Image
         im = Image.fromarray(rgb)
 
         draw = ImageDraw.Draw(im)
         for node in self.nodes:
             for bel in node.below:
-                draw.line((node.baseline.bl[0][0], node.baseline.bl[0][1], bel.bl[0][0], bel.bl[0][1]),fill=(255,0,0))
+                draw.line((node.baseline.bl[0][0], node.baseline.bl[0][1], bel.bl[0][0], bel.bl[0][1]),fill=(255,0,0),width=4)
         show_images([np.array(im)], interpolation="bilinear")
+        #return rgb
 
 
 
