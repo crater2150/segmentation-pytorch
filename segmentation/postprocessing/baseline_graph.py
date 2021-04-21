@@ -15,6 +15,7 @@ from segmentation.postprocessing.util import show_images
 class LabeledBaseline:
     bl: List
     label: int
+    topline: List
 
 @dataclass
 class BaselinePlot:
@@ -92,12 +93,12 @@ class BaselineGraphNode:
         tl_xs += ref_line[0][0]
         return self._interpolate_merged_line(ref_line, tl_xs, tl_ys)
 
-    def get_merged_line_below(self, ref_line: List[Tuple[int,int]]) -> List[Tuple[int,int]]:
+    def get_merged_topline_below(self, ref_line: List[Tuple[int,int]]) -> List[Tuple[int,int]]:
         MAX_INT = np.int32(2147483647)
-        max_x = max(ref_line[-1][0], max(l.baseline.bl[-1][0] for l in self.above))
+        max_x = max(ref_line[-1][0], max(l.baseline.topline[-1][0] for l in self.above))
         ys = np.full(MAX_INT, shape=(len(self.below), max_x))
         for i, al in enumerate(self.below):
-            ys[i, al.baseline.bl[0][0]:] = [p[1] for p in al.baseline.bl]
+            ys[i, al.baseline.topline[0][0]:] = [p[1] for p in al.baseline.topline]
         ym = np.min(ys, axis=0)
         tlx = ym[ref_line[0][0]:]  # cut leading bit
         tl_xs = np.where(tlx < MAX_INT)
@@ -145,6 +146,10 @@ class BaselineGraph:
         for node in self.nodes:
             for bel in node.below:
                 draw.line((node.baseline.bl[0][0], node.baseline.bl[0][1], bel.bl[0][0], bel.bl[0][1]),fill=(255,0,0),width=4)
+                for p1,p2 in zip(node.baseline.bl, node.baseline.bl[1:]):
+                    draw.line((p1[0],p1[1],p2[0],p2[1]), fill=(0,0,255),width=4)
+                    for p1, p2 in zip(node.baseline.topline, node.baseline.topline[1:]):
+                        draw.line((p1[0], p1[1], p2[0], p2[1]), fill=(0, 255, 255), width=4)
         show_images([np.array(im)], interpolation="bilinear")
         #return rgb
 

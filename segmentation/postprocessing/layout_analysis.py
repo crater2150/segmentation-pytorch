@@ -186,8 +186,8 @@ def analyse(baselines, image, use_improved_tops=True):
     h, s = zip(*vectors)
     vectors = [[h_s, 0] for h_s, s_s in list(zip(h, s))]
     vectors2 = [result_dict[indice][4] for indice in inds]
-    t = DBSCAN(eps=0.1, min_samples=1).fit(np.array(vectors))
-    e = DBSCAN(eps=0.01, min_samples=1).fit(np.array(vectors2))
+    t = DBSCAN(eps=0.3, min_samples=1).fit(np.array(vectors))
+    e = DBSCAN(eps=0.03, min_samples=1).fit(np.array(vectors2))
 
     cluster_results = []
     for ind, x in enumerate(inds):
@@ -360,7 +360,7 @@ def generate_clustered_lines(cluster_results: List[BaselineResult]):
                 cluster.append(x)
                 del clone[len(clone) - 1 - ind]
                 break
-            elif (start_x <= start_x_2 and end_x >= end_x_2) \
+            if (start_x <= start_x_2 and end_x >= end_x_2) \
                     or (start_x_2 <= start_x <= end_x_2) \
                     or (start_x_2 <= end_x <= end_x_2):
                 clustered.append(cluster)

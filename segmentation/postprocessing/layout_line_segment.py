@@ -489,7 +489,7 @@ def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionRes
     return bl_cutouts
 
 
-def cutout_to_polygon(cutout: CutoutElem, scaled_image: SourceImage) -> List:
+def cutout_to_polygon(cutout: CutoutElem, scaled_image: SourceImage = None) -> List:
     def draw_bls(bls):
         dd = DebugDraw(scaled_image)
         dd.draw_baselines(bls)
@@ -565,12 +565,17 @@ class PageContours:
         return self.labeled[bb.y1 : bb.y2, bb.x1 : bb.x2]
 
     def find_labels_intersecting_cutout(self, co: CutoutElem):
+        poly = cutout_to_polygon(co)
+        """
         r = []
         c = []
         r += [b[1] for b in co.bc]
         c += [b[0] for b in co.bc]
         r += [t[1] for t in co.tc]
         c += [t[0] for t in co.tc]
+        """
+        r = [p[1] for p in poly]
+        c = [p[0] for p in poly]
         return self.find_labels_intersecting_polygon(r,c)
 
     def find_labels_intersecting_polygon(self, r, c):
@@ -640,7 +645,7 @@ def fix_cutout_lineendings(cutouts: List[CutoutElem], contours: PageContours) ->
     for line_id, co in enumerate(cutouts):
         hit_by = contours.find_labels_intersecting_cutout(co)
         for contour in hit_by:
-            contour_hit_by[contour].add(line_id)
+            contour_hit_by[int(contour)].add(line_id)
 
     contours_used_up = set()
 
@@ -670,7 +675,7 @@ def fix_cutout_lineendings(cutouts: List[CutoutElem], contours: PageContours) ->
             int_labels_end = list(int_labels_end)
             for cc in map(lambda x: contours[x], int_labels_beg):
                 cc_hit_by = contour_hit_by[cc.label]
-                if len(cc_hit_by) > 1 or cc.label not in cc_hit_by: continue # do not use this label, it's cursed
+                if len(cc_hit_by) > 1 or line_id not in cc_hit_by: continue # do not use this label, it's cursed
                 if cc.label in contours_used_up: continue  # dont use this, because it has already been used
                 if cc.height <= avg_line_height * 1.1 and \
                   cc.bbox.y2 >= cutout.bl[0][1] - (avg_line_height / 2) and \
@@ -679,8 +684,10 @@ def fix_cutout_lineendings(cutouts: List[CutoutElem], contours: PageContours) ->
                     accepted_labels_beg.append(cc.label)
 
             for cc in map(lambda x: contours[x], int_labels_end):
-                cc_hit_by = contour_hit_by[cc.label]
-                if len(cc_hit_by) > 1 or cc.label not in cc_hit_by: continue  # do not use this label, it's cursed
+                if cc.label == 259:
+                    a = 1
+                cc_hit_by = contour_hit_by[int(cc.label)]
+                if len(cc_hit_by) > 1 or line_id not in cc_hit_by: continue  # do not use this label, it's cursed
                 if cc.label in contours_used_up: continue # dont use this, because it has already been used
                 if cc.height <= avg_line_height * 1.1 and \
                   cc.bbox.y2 >= cutout.bl[-1][1] - (avg_line_height / 2) and \
