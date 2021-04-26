@@ -75,12 +75,23 @@ def make_path(target_node:QueueElem, start_node: QueueElem) -> List:
         node = node.parent
     return list(reversed(path_reversed))
 
+
 class DividingPathStartingBias(Enum):
     MID = 0
     TOP = 1
     BOTTOM = 2
+    OFFSET = 3
 
-def find_dividing_path(inv_binary_img: np.ndarray, cut_above, cut_below, starting_bias = DividingPathStartingBias.MID) -> List:
+@dataclass
+class DividingPathStartConditions:
+    starting_bias: DividingPathStartingBias = DividingPathStartingBias.MID
+    starting_offset: int = None
+    starting_cheaper_y: bool = True
+
+
+
+
+def find_dividing_path(inv_binary_img: np.ndarray, cut_above, cut_below, starting_bias = DividingPathStartingBias.MID, start_conditions: DividingPathStartConditions = None) -> List:
     # assert, that both cut_baseline is a list of lists and cut_topline is also a list of lists
     tl, bl = extend_baselines(cut_above, cut_below)
 
@@ -138,6 +149,10 @@ def find_dividing_path(inv_binary_img: np.ndarray, cut_above, cut_below, startin
         # return 1+ abs( p2[1] - p1[1]) + int(inv_binary_img[p2[1],p2[0]]) * 1000
         # bottom one is ~ 4% faster
 
+    def cheaper_y_dist_fn(p1,p2):
+        return abs(p1[0] - p2[0]) + 0.5 * abs(p1[1] - p2[1]) + int(inv_binary_img[p2[1], p2[0]]) * 1000
+
+
     def H_fn(p):
         return end_x - p[0]
     #H_fn = lambda p: end_x - p[0]
@@ -159,8 +174,12 @@ def find_dividing_path(inv_binary_img: np.ndarray, cut_above, cut_below, startin
     start_elem = QueueElem(0, 0, start_point, None)
     Q: List[QueueElem] = []
 
-    for p in source_points:
-        heapq.heappush(Q,QueueElem(d=dist_fn(start_point, p), f=dist_fn(start_point,p ) + H_fn(p),point=p,parent=start_elem))
+    if start_conditions and start_conditions.starting_cheaper_y:
+        for p in source_points:
+            heapq.heappush(Q,QueueElem(d=cheaper_y_dist_fn(start_point, p), f=cheaper_y_dist_fn(start_point,p) + H_fn(p),point=p,parent=start_elem))
+    else: # default behaviour
+        for p in source_points:
+            heapq.heappush(Q,QueueElem(d=dist_fn(start_point, p), f=dist_fn(start_point,p) + H_fn(p),point=p,parent=start_elem))
 
     #distance = defaultdict(lambda: 2147483647)
     visited = set()
@@ -446,7 +465,8 @@ def make_toplines_context_sensitive(baselines, scaled_image: SourceImage) -> Mak
 
 def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionResult, settings: LayoutProcessingSettings) -> List[CutoutElem]:
     # calculate toplines
-    extruded = make_toplines_context_sensitive(prediction.baselines, scaled_image)
+    #extruded = make_toplines_context_sensitive(prediction.baselines, scaled_image)
+    extruded = make_toplines(prediction.baselines, scaled_image)
 
 
     blg = BaselineGraph.build_graph(
@@ -461,8 +481,6 @@ def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionRes
 
     for node_i, node in enumerate(blg.nodes):
         baseline_before = json.dumps(node.baseline.points)
-        if node_i == 11:
-            abcderg = 1
 
         if node.above:
             ml_a = node.get_merged_line_above(node.topline.points)
@@ -477,9 +495,9 @@ def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionRes
             ml_b = moveline(node.baseline.points, 1.2 * extruded.moved_tops[node.label - 1].height, scaled_image.get_height())
 
         assert baseline_before == json.dumps(node.baseline.points)
-        top_dl = find_dividing_path(extruded.inverse_binary,ml_a, node.topline.points, starting_bias=DividingPathStartingBias.MID)
+        top_dl = find_dividing_path(extruded.inverse_binary,ml_a, node.topline.points, starting_bias=DividingPathStartingBias.MID, start_conditions=DividingPathStartConditions())
         assert baseline_before == json.dumps(node.baseline.points)
-        bot_dl = find_dividing_path(extruded.inverse_binary, node.baseline.points, ml_b, starting_bias=DividingPathStartingBias.MID)
+        bot_dl = find_dividing_path(extruded.inverse_binary, node.baseline.points, ml_b, starting_bias=DividingPathStartingBias.MID, start_conditions=DividingPathStartConditions())
         assert baseline_before == json.dumps(node.baseline.points)
 
         cutout = CutoutElem(node.baseline.points,top_dl,bot_dl)

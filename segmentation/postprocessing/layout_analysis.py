@@ -401,7 +401,7 @@ def get_top(image, baseline, threshold=0.2, disable_now=False, max_steps=None):
 
 
 def get_top_of_baselines(baselines, image=None, threshold=0.2, process_pool: multiprocessing.Pool = None) -> List[
-    MovedBaselineTop]:
+MovedBaselineTop]:
     p_get_top = partial(get_top_wrapper, image=image, threshold=threshold)
     if process_pool:
         out = list(process_pool.map(p_get_top, baselines))

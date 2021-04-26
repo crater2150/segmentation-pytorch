@@ -136,6 +136,30 @@ def generate_lines_polygons(prediction: PredictionResult, scaled_image: SourceIm
     polys = [co.poly for co  in fix_cutout_lineendings(cutouts, contours)]
     return polys
 
+def show_fix_line_endings(scaled_image, lines: List[LinePoly], contours: PageContours):
+    from matplotlib import pyplot as plt
+    fig, ax = plt.subplots(1, 2)
+
+    ax[0].imshow(scaled_image.binarized())
+    for poly in lines:
+        x, y = [x[0] for x in poly.poly], [x[1] for x in poly.poly]
+        x.append(x[0])
+        y.append(y[0])
+        ax[0].plot(x, y, color='#ff3333', alpha=1, linewidth=3, solid_capstyle='round')
+        cutout_poly = cutout_to_polygon(poly.cutout, None)
+        cx, cy = [x[0] for x in cutout_poly], [x[1] for x in cutout_poly]
+        cx.append(cx[0])
+        cy.append(cy[0])
+        ax[0].plot(cx, cy, color="#6699cc", alpha=1, linewidth=3)
+    ax[1].imshow(contours.labeled)
+    fig.show()
+    plt.show()
+
+def lines_to_analysed_content(lines: List[LinePoly], scaled_image: SourceImage) -> AnalyzedContent:
+    cutouts = [l.cutout for l in lines]
+    return AnalyzedContent(baselines=[simplify_baseline(co.bl) for co in cutouts],
+                         lines_polygons=[line.poly for line in lines])
+
 def process_layout_linesonly(prediction: PredictionResult, scaled_image: SourceImage, process_pool, settings:LayoutProcessingSettings) -> AnalyzedContent:
     return AnalyzedContent(baselines=prediction.baselines, lines_polygons=generate_lines_polygons(prediction, scaled_image, process_pool))
 
@@ -164,25 +188,11 @@ def process_layout_analyse(prediction: PredictionResult, scaled_image: SourceIma
                 analyzed_content.regions.append(reg)
 
         if settings.debug_show_fix_line_endings:
-            from matplotlib import pyplot as plt
-            fig, ax = plt.subplots(1, 2)
-
-            ax[0].imshow(scaled_image.binarized())
-            for poly in all_lines:
-                x, y = [x[0] for x in poly.poly], [x[1] for x in poly.poly]
-                x.append(x[0])
-                y.append(y[0])
-                ax[0].plot(x, y, color='#ff3333', alpha=1, linewidth=3, solid_capstyle='round')
-                cutout_poly = cutout_to_polygon(poly.cutout, None)
-                cx, cy = [x[0] for x in cutout_poly], [x[1] for x in cutout_poly]
-                cx.append(cx[0])
-                cy.append(cy[0])
-                ax[0].plot(cx, cy, color="#6699cc", alpha=1, linewidth=3)
-            ax[1].imshow(contours.labeled)
-            fig.show()
-            plt.show()
+            show_fix_line_endings(scaled_image, all_lines, contours)
 
     return analyzed_content
+
+
 
 def process_layout_full(prediction: PredictionResult, scaled_image: SourceImage, process_pool, settings:LayoutProcessingSettings) -> AnalyzedContent:
 
@@ -195,8 +205,10 @@ def process_layout_full(prediction: PredictionResult, scaled_image: SourceImage,
         cutout_polys = [cutout_to_polygon(co, scaled_image) for co in cutouts]
         lines = [LinePoly(poly, co) for poly, co in zip(cutout_polys, cutouts)]
 
-    reg = AnalyzedContent(baselines=[simplify_baseline(co.bl) for co in cutouts],
-                         lines_polygons=[line.poly for line in lines])
+    if settings.debug_show_fix_line_endings:
+        show_fix_line_endings(scaled_image, lines, contours or PageContours(scaled_image, dilation_amount=1))
+    reg = lines_to_analysed_content(lines, scaled_image=scaled_image)
+
 
     return reg
 
@@ -219,6 +231,7 @@ def process_layout_full(prediction: PredictionResult, scaled_image: SourceImage,
                            polygons, bbox_cutouts)
         )
         all_lines.extend([LinePoly(p, c) for p, c in zip(polygons, cutouts)])
+
 
 
 def process_layout(prediction: PredictionResult, scaled_image: SourceImage, process_pool, settings:LayoutProcessingSettings) -> AnalyzedContent:
