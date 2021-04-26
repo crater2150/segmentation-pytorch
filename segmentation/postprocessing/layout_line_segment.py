@@ -1,8 +1,6 @@
-import itertools
 import heapq
 import itertools
 import json
-import multiprocessing.sharedctypes
 from collections import namedtuple, defaultdict
 from dataclasses import dataclass
 from enum import Enum
@@ -16,16 +14,14 @@ from scipy.spatial import ConvexHull
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
-from segmentation.postprocessing.baseline_graph import BaselineGraph, LabeledBaseline
+from segmentation.postprocessing.baseline_graph import BaselineGraph, LabeledLineNFindAcc
 from segmentation.postprocessing.baselines_util import make_baseline_continous, simplify_baseline
-from segmentation.postprocessing.data_classes import PredictionResult, BboxCluster
+from segmentation.postprocessing.data_classes import PredictionResult, BboxCluster, MovedBaselineTop
 from segmentation.postprocessing.debug_draw import DebugDraw
 from segmentation.postprocessing.layout_analysis import get_top_of_baselines
-from segmentation.postprocessing.layout_line_util import _build_bl_growth_img
-from segmentation.postprocessing.util import NewImageReconstructor, show_images
-from segmentation.preprocessing.source_image import SourceImage
-# find a path that divides the two baselines
 from segmentation.postprocessing.layout_settings import LayoutProcessingSettings
+from segmentation.postprocessing.util import NewImageReconstructor
+from segmentation.preprocessing.source_image import SourceImage
 from segmentation.util import logger
 
 QueueElem = namedtuple("QueueElem", "f d point parent")
@@ -86,8 +82,13 @@ class DividingPathStartingBias(Enum):
 
 def find_dividing_path(inv_binary_img: np.ndarray, cut_above, cut_below, starting_bias = DividingPathStartingBias.MID) -> List:
     # assert, that both cut_baseline is a list of lists and cut_topline is also a list of lists
-
     tl, bl = extend_baselines(cut_above, cut_below)
+
+    # deep copy the lines to avoid breaking stuff with the corridoor adjustment
+    tl = [(p[0],p[1]) for p in tl]
+    bl = [(p[0], p[1]) for p in bl]
+
+
     # see if there is a corridor, if not, push top baseline up by 1 px
     min_channel = 3
     for x, points in enumerate(zip(tl,bl)):
@@ -103,7 +104,6 @@ def find_dividing_path(inv_binary_img: np.ndarray, cut_above, cut_below, startin
                 bl[x] = (bl[x][0], bl[x][1] + min_channel)
             else:
                 assert False, "Unlucky"
-
 
     """
     def find_children(cur_node, x_start):
@@ -128,6 +128,7 @@ def find_dividing_path(inv_binary_img: np.ndarray, cut_above, cut_below, startin
 
     # use Dijkstra's algorithm to find the shortest dividing path
     # dummy start point
+
     end_x = int(bl[-1][0])
     assert end_x == int(tl[-1][0]) and end_x == int(bl[-1][0])
 
@@ -223,6 +224,24 @@ def find_dividing_path(inv_binary_img: np.ndarray, cut_above, cut_below, startin
 
 
 
+
+class BaselineHashedLookup:
+    @staticmethod
+    def blhash(bl):
+        return json.dumps([(int(a[0]), int(a[1])) for a in bl])
+
+    def __init__(self, baselines: List[List[Tuple[int,int]]], hash_fn=None):
+        if not hash_fn:
+            hash_fn = BaselineHashedLookup.blhash
+        self.baselines = baselines
+        self.hash_fn = hash_fn
+        self.hashes = dict((hash_fn(bl), i) for i, bl in enumerate(self.baselines))
+
+
+    def get_index(self, bl: List[Tuple[int,int]]):
+        return self.hashes[self.hash_fn(bl)]
+
+
 QuadrupletElem = namedtuple("QuadruppletEleem", "bl_top tl_cur bl_cur tl_bot")
 
 CutoutElem = namedtuple("CutoutElem", "bl tc bc")
@@ -231,6 +250,16 @@ def shorten_cutline(cutout_line: List[Tuple], bl : List[Tuple]):
     minb = bl[0][0]
     maxb = bl[-1][0]
     return [co for co in cutout_line if minb <= co[0] <= maxb]
+
+def moveline(bl, x, img_height):
+    min_y = min(p[1] for p in bl)
+    max_y = max(p[1] for p in bl)
+    if min_y + x < 0:
+        x = -min_y
+    if max_y + x >= img_height:
+        x = (img_height - max_y - 1)
+
+    return [(p[0], int(p[1] + x)) for p in bl]
 
 def schnip_schnip_algorithm_old(scaled_image: SourceImage, prediction: PredictionResult, bbox: BboxCluster, settings: LayoutProcessingSettings) -> List[CutoutElem]:
     #himg = _build_bl_growth_img(scaled_image.binarized(), np.array(list(itertools.chain.from_iterable(prediction.baselines))))
@@ -242,20 +271,19 @@ def schnip_schnip_algorithm_old(scaled_image: SourceImage, prediction: Predictio
         toplines_cont = [None for bl in baselines_cont]
     if len(bbox.baselines) == 0: return []
 
-    def blhash(bl):
-        return json.dumps([(int(a[0]),int(a[1])) for a in bl])
+
     inv_binary =  1 - scaled_image.binarized()
     inv_binary_dilated = scipy.ndimage.binary_dilation(inv_binary)
     calculated_tops = [np.array(x[1]).tolist() for x in get_top_of_baselines(baselines_cont,inv_binary, process_pool=None)]
 
     #with PerformanceCounter("Hashing"):
-    bl_to_idx = dict((blhash(bl), i) for (i, bl) in enumerate(baselines_cont))
+    bl_to_idx = dict((BaselineHashedLookup.blhash(bl), i) for (i, bl) in enumerate(baselines_cont))
 
     pairs = []
     # make sure, that for each baseline, we do have a topline
     for bl in bbox.baselines:
         bl = bl.baseline
-        bl_i = bl_to_idx[blhash(bl)]
+        bl_i = bl_to_idx[BaselineHashedLookup.blhash(bl)]
         # is there a matching topline?
         if False and len(prediction.matching[bl_i]) > 0: # todo remove
             topline = toplines_cont[prediction.matching[bl_i][0]]
@@ -304,15 +332,7 @@ def schnip_schnip_algorithm_old(scaled_image: SourceImage, prediction: Predictio
     #draw_bls([quad.bl_top, quad.tl_cur, top_cutout])
     #draw_bls([quad.bl_cur, quad.tl_bot, bottom_cutout])
 
-    def moveline(bl, x, img_height):
-        min_y = min(p[1] for p in bl)
-        max_y = max(p[1] for p in bl)
-        if min_y + x < 0:
-            x = -min_y
-        if max_y + x >= img_height:
-            x = (img_height - max_y - 1)
 
-        return [(p[0], p[1] + x) for p in bl]
 
     def calculate_height_diff(a,b):
         avg_height_topline = sum(p[1] for p in a) / len(a)
@@ -378,115 +398,98 @@ def schnip_schnip_algorithm_old(scaled_image: SourceImage, prediction: Predictio
 
     return bl_cutouts
 
-def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionResult, bbox: BboxCluster, settings: LayoutProcessingSettings) -> List[CutoutElem]:
-    blg = BaselineGraph.build_graph(prediction.baselines, scaled_image.array().shape[1], scaled_image.array().shape[0])
-    blg.visualize(scaled_image.array())
 
-    baselines_cont = [x.baseline.bl for x in blg.nodes]
+@dataclass
+class MakeTopLinesResult:
+    moved_tops: List[MovedBaselineTop]
+    inverse_binary: np.ndarray
 
-    inv_binary =  1 - scaled_image.binarized()
+    def get_baselines(self):
+        return [t.baseline for t in self.moved_tops]
+
+    def get_toplines(self):
+        return [t.top for t in self.moved_tops]
+
+    def get_heights(self):
+        return [t.height for t in self.moved_tops]
+
+
+
+def make_toplines(baselines, scaled_image: SourceImage) -> MakeTopLinesResult:
+    baselines_cont = [make_baseline_continous(bl) for bl in baselines]
+
+    """
+    if prediction.toplines is not None:
+        toplines_cont = [make_baseline_continous(bl) if bl is not None else None for bl in prediction.toplines]
+    else:
+        toplines_cont = [None for bl in baselines_cont]
+    if len(bbox.baselines) == 0: return []
+    """
+
+    inv_binary = 1 - scaled_image.binarized()
     inv_binary_dilated = scipy.ndimage.binary_dilation(inv_binary)
-    calculated_tops = [np.array(x[1]).tolist() for x in get_top_of_baselines(baselines_cont,inv_binary, process_pool=None)]
-    
 
-    #with PerformanceCounter("Hashing"):
-    bl_to_idx = dict((blhash(bl), i) for (i, bl) in enumerate(baselines_cont))
+    # sort the baselines by their average y-coordinate
+    sorted_baselines = sorted(baselines, key=lambda bl: sum(p[1] for p in bl) / len(bl))
 
-    pairs = []
-    # make sure, that for each baseline, we do have a topline
-    for bl in bbox.baselines:
-        bl = bl.baseline
-        bl_i = bl_to_idx[blhash(bl)]
-        # is there a matching topline?
-        if False and len(prediction.matching[bl_i]) > 0: # todo remove
-            topline = toplines_cont[prediction.matching[bl_i][0]]
+    moved_tops = get_top_of_baselines(baselines_cont, inv_binary,process_pool=None)
+
+    return MakeTopLinesResult(moved_tops, inv_binary)
+
+def make_toplines_context_sensitive(baselines, scaled_image: SourceImage) -> MakeTopLinesResult:
+    inv_binary = 1 - scaled_image.binarized()
+    lines_find_acc = LabeledLineNFindAcc.from_lines(baselines,scaled_image.get_width(), scaled_image.get_height())
+
+    moved_tops = [lines_find_acc.get_top_sensitive(bl,inv_binary) for bl in baselines]
+    return MakeTopLinesResult(moved_tops, inv_binary)
+
+
+def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionResult, settings: LayoutProcessingSettings) -> List[CutoutElem]:
+    # calculate toplines
+    extruded = make_toplines_context_sensitive(prediction.baselines, scaled_image)
+
+
+    blg = BaselineGraph.build_graph(
+        extruded.get_baselines(),
+        extruded.get_toplines(),
+        scaled_image.get_width(), scaled_image.get_height())
+
+    assert blg.is_symmetrical()
+    # blg.visualize(scaled_image.array())
+
+    cutouts = []
+
+    for node_i, node in enumerate(blg.nodes):
+        baseline_before = json.dumps(node.baseline.points)
+        if node_i == 11:
+            abcderg = 1
+
+        if node.above:
+            ml_a = node.get_merged_line_above(node.topline.points)
         else:
-            topline = calculated_tops[bl_i]
-        pairs.append((baselines_cont[bl_i], topline))
+            ml_a = moveline(node.topline.points, settings.schnip_schnip_height_diff_factor * extruded.moved_tops[node.label - 1].height, scaled_image.get_height())
 
-    # sort the baselines from top to bottom by their average height
-    pairs = sorted(pairs, key= lambda pair: sum(p[1] for p in pair[0]) / len(pair[0]))
+        assert baseline_before == json.dumps(node.baseline.points)
+
+        if node.below:
+            ml_b = node.get_merged_topline_below(node.baseline.points)
+        else:
+            ml_b = moveline(node.baseline.points, 1.2 * extruded.moved_tops[node.label - 1].height, scaled_image.get_height())
+
+        assert baseline_before == json.dumps(node.baseline.points)
+        top_dl = find_dividing_path(extruded.inverse_binary,ml_a, node.topline.points, starting_bias=DividingPathStartingBias.MID)
+        assert baseline_before == json.dumps(node.baseline.points)
+        bot_dl = find_dividing_path(extruded.inverse_binary, node.baseline.points, ml_b, starting_bias=DividingPathStartingBias.MID)
+        assert baseline_before == json.dumps(node.baseline.points)
+
+        cutout = CutoutElem(node.baseline.points,top_dl,bot_dl)
+        assert baseline_before == json.dumps(node.baseline.points)
+        cutouts.append(cutout)
+
+    return cutouts
 
     # to calculate a line polyon, we need: baseline from the top line, a topline, a baseline, and the topline from the line below
     # because we don't have that for the first and last line, we fake this, for all inner lines, pair it up now
-
-    bl_cutouts = []
-
-    cuts = []
-    def draw_bls(bls):
-        dd = DebugDraw(scaled_image)
-        dd.draw_baselines(bls)
-
-        from matplotlib import pyplot
-        pyplot.imshow(SourceImage(dd.image()).array())
-        pyplot.show()
-
-    #with PerformanceCounter("FindCuts"):
-    # doing MP here is probably not faster
-    for pt, pb in zip(pairs, pairs[1:]):
-        # draw_bls([pt[0],pb[1]])
-        cuts.append(find_dividing_path(inv_binary_dilated,pt[0], pb[1]))
-        # draw_bls([pt[0], pb[1], cuts[-1]])
-    for pair, tc, bc in zip(pairs[1:], cuts, cuts[1:]):
-        bl_cutouts.append(CutoutElem(bl=pair[0], tc=shorten_cutline(tc, pair[0]), bc=shorten_cutline(bc, pair[0])))
-
-    """
-    for pair_top, pair_cur, pair_bottom in zip(pairs, pairs[1:], pairs[2:]):
-        quad = QuadrupletElem(pair_top[0], pair_cur[1], pair_cur[0], pair_bottom[1])
-
-        top_cutout = find_dividing_path(inv_binary,quad.bl_top, quad.tl_cur)
-        bottom_cutout = find_dividing_path(inv_binary, quad.bl_cur, quad.tl_bot)
-
-        bl_cutouts.append(CutoutElem(bl=quad.bl_cur,tc=top_cutout, bc=bottom_cutout))        
-    """
-
-
-
-    #draw_bls([quad.bl_top, quad.tl_cur, top_cutout])
-    #draw_bls([quad.bl_cur, quad.tl_bot, bottom_cutout])
-
-    def moveline(bl, x, img_height):
-        min_y = min(p[1] for p in bl)
-        max_y = max(p[1] for p in bl)
-        if min_y + x < 0:
-            x = -min_y
-        if max_y + x >= img_height:
-            x = (img_height - max_y - 1)
-
-        return [(p[0], p[1] + x) for p in bl]
-
-    def calculate_height_diff(a,b):
-        avg_height_topline = sum(p[1] for p in a) / len(a)
-        avg_height_baseline = sum(p[1] for p in b) / len(b)
-        return round(abs(avg_height_topline - avg_height_baseline))
-
-    # fix first line
-    height_diff = calculate_height_diff(pairs[0][0], pairs[0][1])
-    first_tc = find_dividing_path(inv_binary_dilated,
-                                  moveline(pairs[0][0], (settings.schnip_schnip_height_diff_factor)*height_diff, int(inv_binary.shape[0])), pairs[0][1],
-                                  starting_bias=DividingPathStartingBias.BOTTOM)
-    if len(pairs) > 1:
-        #first_bc = find_dividing_path(inv_binary, pairs[0][0], pairs[1][1])
-        first_bc = cuts[0]
-    else:
-        first_bc = find_dividing_path(inv_binary_dilated,
-                                      pairs[0][0], moveline(pairs[0][0], height_diff, int(inv_binary.shape[0])),
-                                      starting_bias=DividingPathStartingBias.TOP)
-
-    bl_cutouts = [CutoutElem(pairs[0][0], tc=shorten_cutline(first_tc, pairs[0][0]), bc=shorten_cutline(first_bc, pairs[0][0]))] + bl_cutouts
-
-    if len(pairs) > 1:
-
-        # find a bottom line for the last baseline
-        #bot_tc = find_dividing_path(inv_binary, pairs[-2][0], pairs[-1][1])
-        bot_tc = cuts[-1]
-        height_diff = calculate_height_diff(pairs[-1][0], pairs[-1][1])
-        bot_bc = find_dividing_path(inv_binary_dilated,
-                                    pairs[-1][0], moveline(pairs[-1][0], height_diff, int(inv_binary.shape[0])),
-                                    starting_bias=DividingPathStartingBias.TOP)
-        bl_cutouts = bl_cutouts + [CutoutElem(pairs[-1][0],tc=shorten_cutline(bot_tc, pairs[-1][0]), bc=shorten_cutline(bot_bc,pairs[-1][0]))]
-
-    return bl_cutouts
 
 
 def cutout_to_polygon(cutout: CutoutElem, scaled_image: SourceImage = None) -> List:
@@ -658,12 +661,12 @@ def fix_cutout_lineendings(cutouts: List[CutoutElem], contours: PageContours) ->
                          LineSegment(cutout.bl[0][0], cutout.bl[0][1], cutout.tc[0][0], cutout.tc[0][1])]
             end_lines = [LineSegment(cutout.bc[-1][0], cutout.bc[-1][1], cutout.bl[-1][0], cutout.bl[-1][1]),
                          LineSegment(cutout.bl[-1][0], cutout.bl[-1][1], cutout.tc[-1][0], cutout.tc[-1][1])]
-            logger.info(f"Beg Lines: {beg_lines}\n")
-            logger.info(f"End Lines: {end_lines}\n")
+            #logger.info(f"Beg Lines: {beg_lines}\n")
+            #logger.info(f"End Lines: {end_lines}\n")
             int_labels_beg = find_intersecting_labels(beg_lines, contours)
             int_labels_end = find_intersecting_labels(end_lines, contours)
-            logger.info(f"Beg Labels: {int_labels_beg}\n")
-            logger.info(f"End Labels: {int_labels_end}\n")
+            #logger.info(f"Beg Labels: {int_labels_beg}\n")
+            #logger.info(f"End Labels: {int_labels_end}\n")
             # if the label is approximately the height of the line
             accepted_labels_beg = []
             accepted_labels_end = []
@@ -680,7 +683,7 @@ def fix_cutout_lineendings(cutouts: List[CutoutElem], contours: PageContours) ->
                 if cc.height <= avg_line_height * 1.1 and \
                   cc.bbox.y2 >= cutout.bl[0][1] - (avg_line_height / 2) and \
                   cc.bbox.y2 <= cutout.bc[0][1] + (avg_line_height) * 0.2: # TODO: do the same for the top cutout (but probably with more offset)
-                    logger.info(f"Accepted: {cc} for {line_id}\n")
+                    #logger.info(f"Accepted: {cc} for {line_id}\n")
                     accepted_labels_beg.append(cc.label)
 
             for cc in map(lambda x: contours[x], int_labels_end):
@@ -692,7 +695,7 @@ def fix_cutout_lineendings(cutouts: List[CutoutElem], contours: PageContours) ->
                 if cc.height <= avg_line_height * 1.1 and \
                   cc.bbox.y2 >= cutout.bl[-1][1] - (avg_line_height / 2) and \
                   cc.bbox.y2 <= cutout.bc[-1][1] + (avg_line_height) * 0.2:
-                    logger.info(f"Accepted end: {cc} for {line_id}\n")
+                    #logger.info(f"Accepted end: {cc} for {line_id}\n")
                     accepted_labels_end.append(cc.label)
 
             if len(accepted_labels_end) == 0 and len(accepted_labels_beg) == 0:
@@ -741,6 +744,7 @@ def fix_cutout_lineendings(cutouts: List[CutoutElem], contours: PageContours) ->
             line_polys.append(fallback)
 
     return line_polys
+
 
 
 

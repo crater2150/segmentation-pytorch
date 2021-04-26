@@ -3,22 +3,18 @@ import glob
 import itertools
 import multiprocessing
 import os
-from dataclasses import dataclass
-from typing import NamedTuple, List, Dict
-from enum import Enum
-import numpy as np
-from functools import partial
 
-from segmentation.gui.xml_util import TextRegion, BaseLine, TextLine, XMLGenerator
-from segmentation.postprocessing.data_classes import PredictionResult, BboxCluster
+from tqdm import tqdm
+
+from segmentation.postprocessing.baselines_util import scale_baseline, make_baseline_continous, simplify_baseline
+from segmentation.postprocessing.data_classes import PredictionResult
 from segmentation.postprocessing.debug_draw import DebugDraw
-from segmentation.postprocessing.layout_analysis import get_top_of_baselines, get_top_of_baselines_improved, analyse, connect_bounding_box
-from segmentation.postprocessing.layout_line_segment import schnip_schnip_algorithm, cutout_to_polygon, PageContours, \
-    fix_cutout_lineendings, LinePoly, CutoutElem, schnip_schnip_algorithm_old
-from segmentation.preprocessing.source_image import SourceImage
-from segmentation.postprocessing.baselines_util import scale_baseline, make_baseline_continous, simplify_baseline, flip_baseline
-from segmentation.util import PerformanceCounter, logger
+from segmentation.postprocessing.layout_analysis import get_top_of_baselines_improved
+from segmentation.postprocessing.layout_processing import process_layout
 from segmentation.postprocessing.layout_settings import LayoutProcessingSettings
+from segmentation.preprocessing.source_image import SourceImage
+from segmentation.util import logger
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -42,6 +38,8 @@ def parse_args():
     parser.add_argument("--output_xml_path", type=str, default=None, help="Directory of the XML output")
     parser.add_argument("--layout_prediction", action="store_true", help="Generates Layout of the page "
                                                                          "based on the baselines")
+    parser.add_argument("--layout_method", type=str, choices=["linesonly", "analyse", "analyse+schnipschnip", "full"])
+
     parser.add_argument("--fix_baseline_points", action="store_true",help="Remove Baseline Points which are outsite the \"legal\" image area")
     parser.add_argument("--assert_binarized", action="store_true", help="Do not allow binarization of the image file")
     parser.add_argument("--output_path_debug_images", type=str, default=None, help="Directory of the debug images")
@@ -50,170 +48,6 @@ def parse_args():
                         help="line height factor for SchnipSchnip. Use more negative value, if detected lines are not high enough")
     parser.add_argument("--single_threaded", action="store_true", help="Do not use multiprocessing")
     return parser.parse_args()
-
-
-
-
-# this structure should contain the finished content information of the page in PageXML coordinate space
-@dataclass
-class AnalyzedRegion:
-    bbox: BboxCluster
-    baselines: List
-    lines_polygons: List
-    cutouts: List
-
-    def scale(self, scale_factor:float = 1):
-        baselines = [scale_baseline(bl, scale_factor) for bl in self.baselines]
-        lines_polygons = [scale_baseline(lp.poly if type(lp) is not list else lp, scale_factor) for lp in self.lines_polygons]
-        bbx = self.bbox.scale(scale_factor)
-        return AnalyzedRegion(bbox=bbx, baselines=baselines, lines_polygons=lines_polygons, cutouts=None) # todo scale cutouts
-
-
-@dataclass
-class AnalyzedContent:
-    baselines: List = None
-    lines_polygons: List = None
-    bboxs: List = None
-    regions: List[AnalyzedRegion] = None
-
-    def to_pagexml_space(self, scale_factor: float) -> 'AnalyzedContent':
-        if scale_factor == 1 or scale_factor == 1.0:
-            return self
-
-        undo_scale_factor = 1 / scale_factor
-        baselines = [scale_baseline(bl, undo_scale_factor) for bl in self.baselines]
-        if self.regions:
-            reg = [r.scale(undo_scale_factor) for r in self.regions]
-        else:
-            reg = None
-        if self.lines_polygons:
-            lp = [scale_baseline(bl, undo_scale_factor) for bl in self.lines_polygons]
-        else:
-            lp = None
-        if self.bboxs:
-            bbx = [x.scale(undo_scale_factor) for x in self.bboxs]
-        else:
-            bbx = None
-
-        return AnalyzedContent(baselines, lp, bbx, regions=reg)
-
-    def export(self, source_image, source_filename, simplified_xml=False) -> XMLGenerator:
-        regions = []
-        if self.regions is not None:
-            for ib, reg in enumerate(self.regions):
-                text_lines = []
-                for bline, tline in zip(reg.baselines, reg.lines_polygons):
-                    text_lines.append(TextLine(coords=tline, baseline=BaseLine(bline)))
-                regions.append(TextRegion(text_lines, coords=reg.bbox.bbox))
-
-        elif self.bboxs is not None:
-            # Layout segmentation is done, save baselines inside the regions
-            for box in self.bboxs:
-                text_lines = []
-                for b_line in box.baselines:
-                    text_region_coord = b_line.baseline + list(reversed(
-                        [(x, y - b_line.height) for x, y in b_line.baseline]))
-                    text_lines.append(TextLine(coords=text_region_coord,
-                                               baseline=BaseLine(simplify_baseline(b_line.baseline))))
-                regions.append(TextRegion(text_lines, coords=box.bbox))
-
-        elif self.lines_polygons is not None and simplified_xml:
-            # no layout segmentation is done, create text regions for each baseline
-            text_lines = []
-            for bl, text_region_coord in zip(self.baselines, self.lines_polygons):
-                text_lines.append(TextLine(coords=text_region_coord, baseline=BaseLine(bl)))
-            w, h = source_image.array().shape[1], source_image.array().shape[0]
-            regions.append(TextRegion(text_lines, coords=[(0, 0), (w, 0), (w, h), (0, h)]))
-        elif self.lines_polygons is not None and not simplified_xml:
-            # no layout segmentation is done, create text regions for each baseline
-            for bl, text_region_coord in zip(self.baselines, self.lines_polygons):
-                tl = TextLine(coords=text_region_coord, baseline=BaseLine(bl))
-                regions.append(TextRegion([tl], coords=text_region_coord))
-
-        xml_gen = XMLGenerator(source_image.pil_image.size[0], source_image.pil_image.size[1],
-                               os.path.basename(source_filename), regions=regions)
-        return xml_gen
-
-
-def complex_layout(prediction: PredictionResult, scaled_image: SourceImage, settings: LayoutProcessingSettings, process_pool) -> List: # returns a page xml
-    baselines = list(map(make_baseline_continous, prediction.baselines))
-    if not settings.source_scale:
-        raise NotImplementedError()
-    with PerformanceCounter(function_name="Layout Analysis"):
-        bboxs = analyse(baselines=baselines, image=(1 - scaled_image.binarized()), use_improved_tops=False)
-    from segmentation.postprocessing.marginialia_detection import marginalia_detection
-
-    if settings.marginalia_postprocessing:
-        bboxs = marginalia_detection(bboxs, scaled_image.array())
-        baselines = [bl.baseline for cluster in bboxs for bl in cluster.baselines]
-        bboxs = analyse(baselines=baselines, image=(1 - scaled_image.binarized()), use_improved_tops=False)
-    return connect_bounding_box(bboxs)
-
-
-def generate_lines_polygons(prediction: PredictionResult, scaled_image: SourceImage, process_pool) -> List:
-    baselines = list(map(make_baseline_continous, prediction.baselines))
-    baseline_tops = list(map(lambda blt: blt.top, get_top_of_baselines_improved(baselines, 1 - scaled_image.binarized(), process_pool=process_pool)))
-    middle_lines = [
-                [
-                    (t[0], b[1] + (t[1] - b[1]) // 5) for b, t in zip(base, top)
-                ] for base, top in zip(baselines, baseline_tops)
-            ]
-    flip = partial(flip_baseline, image_shape=scaled_image.array().shape)
-    baseline_bottoms = get_top_of_baselines(
-            list(map(flip, middle_lines)),
-            1 - np.flip(scaled_image.binarized()),
-            process_pool=process_pool)
-    baseline_bottoms = [ flip(b.top) for b in baseline_bottoms ]
-
-    cutouts = [ CutoutElem(bl, tc, bc) for bl, tc, bc in zip(baselines, baseline_tops, baseline_bottoms) ]
-    contours = PageContours(scaled_image, dilation_amount=1)
-    polys = [co.poly for co  in fix_cutout_lineendings(cutouts, contours)]
-    return polys
-
-
-def process_layout(prediction, scaled_image: SourceImage, process_pool, settings:LayoutProcessingSettings) -> AnalyzedContent:
-    if settings.lines_only:
-        return AnalyzedContent(baselines=prediction.baselines, lines_polygons=generate_lines_polygons(prediction, scaled_image, process_pool))
-    else:
-        analyzed_content = AnalyzedContent(baselines=prediction.baselines, bboxs=complex_layout(prediction, scaled_image, settings, process_pool))
-        if settings.schnip_schnip:
-            bbox: BboxCluster
-            analyzed_content.regions = []
-            all_lines: List[LinePoly] = []
-
-            with PerformanceCounter("SchnipSchnip"):
-                for bbox in analyzed_content.bboxs:
-                    cutouts = schnip_schnip_algorithm_old(scaled_image, prediction, bbox, settings)
-                    if settings.fix_line_endings:
-                        contours = PageContours(scaled_image, dilation_amount=1)
-                        lines = fix_cutout_lineendings(cutouts, contours)
-                    else:
-                        cutout_polys = [cutout_to_polygon(co, scaled_image) for co in cutouts]
-                        lines = [LinePoly(poly, co) for poly,co in zip(cutout_polys, cutouts)]
-                    all_lines.extend(lines)
-
-                    reg = AnalyzedRegion(bbox, [simplify_baseline(co.bl) for co in cutouts], [line.poly for line in lines], cutouts)
-                    analyzed_content.regions.append(reg)
-
-                if settings.debug_show_fix_line_endings:
-                    from matplotlib import pyplot as plt
-                    fig, ax = plt.subplots(1,2)
-
-                    ax[0].imshow(scaled_image.binarized())
-                    for poly in all_lines:
-                        x, y = [x[0] for x in poly.poly], [x[1] for x in poly.poly]
-                        x.append(x[0])
-                        y.append(y[0])
-                        ax[0].plot(x, y, color='#ff3333', alpha=1, linewidth=3, solid_capstyle='round')
-                        cutout_poly = cutout_to_polygon(poly.cutout, None)
-                        cx, cy = [x[0] for x in cutout_poly], [x[1] for x in cutout_poly]
-                        cx.append(cx[0])
-                        cy.append(cy[0])
-                        ax[0].plot(cx, cy, color="#6699cc", alpha=1, linewidth=3)
-                    ax[1].imshow(contours.labeled)
-                    fig.show()
-                    plt.show()
-        return analyzed_content
 
 
 def layout_debugging(args, analyzed_content, source_image, image_filename):
@@ -314,6 +148,7 @@ def mp_process(args):
         else:
             xml_gen.save_textregions_as_xml(args.output_xml_path)
 
+
 def main():
     args = parse_args()
 
@@ -321,14 +156,13 @@ def main():
         logger.warning("Assert source images are already binarized.")
         SourceImage.fail_on_binarize=True
 
-
-    data = zip(sorted(glob.glob(args.prediction)), itertools.repeat(args))
-    if args.show_layout or args.show_lines or args.show_baselines or args.single_threaded:
-        for _ in map(mp_process, data):
+    data = list(zip(sorted(glob.glob(args.prediction)), itertools.repeat(args)))
+    if args.show_layout or args.show_lines or args.show_baselines or args.single_threaded or args.processes == 1:
+        for _ in tqdm(map(mp_process, data), total=len(data)):
             pass
     else:
         with multiprocessing.Pool() as p:
-            for _ in p.imap(mp_process, data):
+            for _ in tqdm(p.imap_unordered(mp_process, data), total=len(data)):
                 pass
 
 

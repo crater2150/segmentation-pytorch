@@ -39,7 +39,7 @@ class DebugDraw:
         for ind, x in enumerate(bboxs):
             if x.bbox:
                 self.draw.line(x.bbox + [x.bbox[0]], fill=DebugDraw.colors[ind % len(DebugDraw.colors)], width=3)
-                self.draw.text((x.bbox[0]), "type:{}".format(x.baselines[0].cluster_type))
+                self.draw.text((x.bbox[0]), "type:{}".format(x.lines[0].cluster_type))
 
     def draw_baselines(self, baselines):
         if baselines is None or len(baselines) == 0:

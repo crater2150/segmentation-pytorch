@@ -11,8 +11,10 @@ from segmentation.postprocessing.baseline_extraction import extract_baselines_fr
 from segmentation.postprocessing.baseline_graph import BaselineGraph
 from segmentation.postprocessing.data_classes import PredictionResult
 from segmentation.postprocessing.layout_analysis import get_top_of_baselines
+from segmentation.postprocessing.layout_processing import process_layout
+from segmentation.postprocessing.layout_settings import LayoutProcessingSettings
 from segmentation.preprocessing.source_image import SourceImage
-from segmentation.scripts.layout import process_layout, LayoutProcessingSettings, layout_debugging
+from segmentation.scripts.layout import layout_debugging
 from segmentation.settings import PredictorSettings
 from segmentation.util import PerformanceCounter
 

@@ -3,13 +3,13 @@ import math
 import multiprocessing
 from collections.abc import Collection, Iterable
 from functools import partial
-from typing import List, NamedTuple, Callable
+from typing import List, Callable
 from PIL import Image, ImageDraw
 
 import numpy as np
 from sklearn.cluster import DBSCAN
 
-from segmentation.postprocessing.data_classes import BboxCluster, BaselineResult
+from segmentation.postprocessing.data_classes import BboxCluster, BaselineResult, MovedBaselineTop
 
 '''
 Todo: Refactor file
@@ -375,12 +375,6 @@ def generate_clustered_lines(cluster_results: List[BaselineResult]):
     return clustered
 
 
-class MovedBaselineTop(NamedTuple):
-    baseline: List
-    top: List
-    height: int
-
-
 def get_top_wrapper(baseline, image=None, threshold=0.2):
     top_border, height = get_top(image, baseline, threshold=threshold)
     return MovedBaselineTop(baseline, top_border, height)
@@ -403,10 +397,11 @@ def get_top(image, baseline, threshold=0.2, disable_now=False, max_steps=None):
             break
         height = height + 1
         max_black_pixels = now if now > max_black_pixels else max_black_pixels
-    return list(zip(indexes[1], indexes[0])), height
+    return list(zip(indexes[1].tolist(), indexes[0].tolist())), height
 
 
-def get_top_of_baselines(baselines, image=None, threshold=0.2, process_pool: multiprocessing.Pool = None):
+def get_top_of_baselines(baselines, image=None, threshold=0.2, process_pool: multiprocessing.Pool = None) -> List[
+    MovedBaselineTop]:
     p_get_top = partial(get_top_wrapper, image=image, threshold=threshold)
     if process_pool:
         out = list(process_pool.map(p_get_top, baselines))

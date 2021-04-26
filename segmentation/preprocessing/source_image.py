@@ -60,4 +60,10 @@ class SourceImage:
     def is_rescaled(self):
         return self.scale_factor != 1
 
+    def get_width(self):
+        return int(self.array().shape[1])
+
+    def get_height(self):
+        return int(self.array().shape[0])
+
 
