@@ -218,6 +218,9 @@ def main():
                     with open(os.path.join(args.export_path, bname_json), "w") as f:
                         f.write(prediction.to_json())
 
+                if not (args.debug or args.print_xml or args.output_xml):
+                    continue  # skip the rest here, it's not necessary
+
                 scale_factor = prediction.prediction_scale_factor
 
                 layout_settings = LayoutProcessingSettings.from_cmdline_args(args)
