@@ -294,7 +294,8 @@ class Network(object):
             self.settings.VAL_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(self.settings.ENCODER)
         device = "cuda" if torch.cuda.is_available() else "cpu"
         logger.info('Device: {} is used for training/prediction\n'.format(device))
-        custom_model = custom_model if custom_model else json_file["CUSTOM_MODEL"]
+        custom_model = custom_model #if custom_model else json_file["CUSTOM_MODEL"]
+        # TODO: Why is it loaded from the json. What if it doesn't exist?
         self.device = torch.device(device)
         self.model_params = None
         if not custom_model:

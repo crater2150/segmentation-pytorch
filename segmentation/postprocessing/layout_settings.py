@@ -21,13 +21,13 @@ class LayoutProcessingSettings(NamedTuple):
 
     @staticmethod
     def from_cmdline_args(args):
-        if args.layout_prediction:
+        if args.layout_method:
+            layout_method = LayoutProcessingMethod(args.layout_method)
+        elif args.layout_prediction:
             if args.schnipschnip:
                 layout_method = LayoutProcessingMethod.ANALYSE_SCHNIPSCHNIP
             else:
                 layout_method = LayoutProcessingMethod.ANALYSE
-        elif args.layout_method:
-            layout_method = LayoutProcessingMethod(args.layout_method)
         else:
             layout_method = LayoutProcessingMethod.LINES_ONLY
 
