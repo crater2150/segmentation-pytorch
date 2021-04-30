@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import NamedTuple, List, Tuple
+from typing import NamedTuple, List, Tuple, Optional
 
 import dataclasses_json
 import numpy as np
@@ -85,10 +85,10 @@ class PredictionResult:
     baselines: List[List[Tuple[int, int]]]
     prediction_shape: List[int]
     prediction_scale_factor: float = None
-    toplines: List[Tuple[int, int]] = None
+    toplines: Optional[List[Tuple[int, int]]] = None
     #matching: List[List[List]] = None  # this could possible be an n to n relation
     #source_image: str = None
-
+c
 
 class MovedBaselineTop(NamedTuple):
     baseline: List
