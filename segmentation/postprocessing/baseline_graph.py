@@ -8,7 +8,6 @@ import numpy as np
 from typing import List, Tuple, Set, Optional
 
 from segmentation.postprocessing.util import show_images
-from numba import jit
 
 from segmentation.preprocessing.source_image import SourceImage
 from segmentation.util import PerformanceCounter
