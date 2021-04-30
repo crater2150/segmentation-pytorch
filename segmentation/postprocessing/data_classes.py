@@ -88,7 +88,7 @@ class PredictionResult:
     toplines: Optional[List[Tuple[int, int]]] = None
     #matching: List[List[List]] = None  # this could possible be an n to n relation
     #source_image: str = None
-c
+
 
 class MovedBaselineTop(NamedTuple):
     baseline: List
