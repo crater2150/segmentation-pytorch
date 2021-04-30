@@ -473,6 +473,7 @@ def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionRes
         extruded.get_baselines(),
         extruded.get_toplines(),
         scaled_image.get_width(), scaled_image.get_height())
+    blg.visualize(scaled_image.array())
 
     assert blg.is_symmetrical()
     # blg.visualize(scaled_image.array())
@@ -495,9 +496,9 @@ def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionRes
             ml_b = moveline(node.baseline.points, 1.2 * extruded.moved_tops[node.label - 1].height, scaled_image.get_height())
 
         assert baseline_before == json.dumps(node.baseline.points)
-        top_dl = find_dividing_path(extruded.inverse_binary,ml_a, node.topline.points, starting_bias=DividingPathStartingBias.MID, start_conditions=DividingPathStartConditions())
+        top_dl = find_dividing_path(extruded.inverse_binary,ml_a, node.topline.points, starting_bias=DividingPathStartingBias.BOTTOM, start_conditions=DividingPathStartConditions())
         assert baseline_before == json.dumps(node.baseline.points)
-        bot_dl = find_dividing_path(extruded.inverse_binary, node.baseline.points, ml_b, starting_bias=DividingPathStartingBias.MID, start_conditions=DividingPathStartConditions())
+        bot_dl = find_dividing_path(extruded.inverse_binary, node.baseline.points, ml_b, starting_bias=DividingPathStartingBias.TOP, start_conditions=DividingPathStartConditions())
         assert baseline_before == json.dumps(node.baseline.points)
 
         cutout = CutoutElem(node.baseline.points,top_dl,bot_dl)

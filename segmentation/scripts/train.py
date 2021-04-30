@@ -18,6 +18,9 @@ def dir_path(string):
 
 
 def main():
+    import cv2
+    cv2.setNumThreads(0)  # force opencv to disable multithreading
+
     from segmentation.network import TrainSettings, dirs_to_pandaframe, load_image_map_from_file, MaskSetting, MaskType, \
         PCGTSVersion, XMLDataset, Network, compose, MaskGenerator, MaskDataset
     from segmentation.settings import Architecture
