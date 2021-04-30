@@ -148,6 +148,7 @@ def parse_args():
                         help="line height factor for SchnipSchnip. Use more negative value, if detected lines are not high enough")
     parser.add_argument("--schnipschnip", action="store_true",
                         help="Use SchnipSchnip Algorithm to cut Regions into lines")
+    parser.add_argument("--layout_method", type=str, choices=["linesonly", "analyse", "analyse+schnipschnip", "full"])
     parser.add_argument("--twosteps", action="store_true", help="Run two step prediction")
 
     return parser.parse_args()
