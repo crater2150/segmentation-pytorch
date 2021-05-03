@@ -318,10 +318,10 @@ class Network(object):
             self.model = CustomModel(custom_model.TYPE)()(**kwargs)
 
         if self.settings.MODEL_PATH:
-            try:
+            #try:
                 self.model.load_state_dict(torch.load(self.settings.MODEL_PATH, map_location=torch.device(device)))
-            except Exception:
-                logger.warning('Could not load model weights, ... Skipping\n')
+            #except Exception: # TODO: do fail here...
+            #    logger.warning('Could not load model weights, ... Skipping\n')
 
         self.color_map = color_map  # Optional for visualisation of mask data
         self.model.to(self.device)
