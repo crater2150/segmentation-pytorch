@@ -475,7 +475,7 @@ def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionRes
         scaled_image.get_width(), scaled_image.get_height())
     # blg.visualize(scaled_image.array())
 
-    assert blg.is_symmetrical()
+    #assert blg.is_symmetrical()
     # blg.visualize(scaled_image.array())
 
     cutouts = []
