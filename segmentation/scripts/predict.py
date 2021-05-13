@@ -5,7 +5,10 @@ import warnings
 import glob
 import os
 
+import imageio
+import shapely.geometry
 import torch
+from shapely.geometry import LineString
 
 from segmentation.postprocessing.baseline_extraction import extract_baselines_from_probability_map
 from segmentation.postprocessing.baseline_graph import BaselineGraph
@@ -24,11 +27,11 @@ import itertools
 import numpy as np
 from tqdm import tqdm
 from segmentation.util import logger
-from typing import NamedTuple, List
+from typing import NamedTuple, List, Tuple
 
 from segmentation.network import Network
 
-from segmentation.postprocessing.baselines_util import simplify_baseline
+from segmentation.postprocessing.baselines_util import simplify_baseline, scale_baseline
 
 
 class Ensemble:
@@ -108,6 +111,69 @@ class Predictor:
                                 prediction_scale_factor=scaled_image.scale_factor,
                                 prediction_shape=list(scaled_image.array().shape)), scaled_image
 
+class BigTextDetector:
+    def __init__(self, predictor: Predictor):
+        self.predictor = predictor
+
+    @staticmethod
+    def baseline_to_poly_candidates(baselines, slack_radius: float) -> List[shapely.geometry.Polygon]:
+        line_strings = [LineString(bl if len(bl) > 1 else bl * 2) for bl in baselines]
+        return [ls.buffer(slack_radius) for ls in line_strings]
+
+    def predict_padded(self, img: SourceImage, factor: float = 0.5, process_pool:multiprocessing.Pool = multiprocessing.Pool()) -> Tuple[PredictionResult, SourceImage]:
+        # pad the image by 50%
+        pad_img = img.pad(factor)
+        pred_pad, scaled_padded_img = self.predictor.predict_image(pad_img, process_pool)
+        # convert the padded_prediction result to original image space
+        converted_baselines = []
+        offs_x = int(scaled_padded_img.get_width() * (factor / 2))
+        offs_y = int(scaled_padded_img.get_height() * (factor / 2))
+
+        for bl in pred_pad.baselines:
+            new_bl = [((p[0] - offs_x)*2, (p[1] - offs_y) * 2) for p in bl]
+            converted_baselines.append(new_bl)
+
+        pred_pad.baselines = converted_baselines
+        return pred_pad, scaled_padded_img
+
+
+
+    def predict(self, img: SourceImage, process_pool: multiprocessing.Pool) -> Tuple[PredictionResult, SourceImage]:
+        pred_orig, scaled_image = self.predictor.predict_image(img, process_pool)
+        pred_pad, scaled_padded_img = self.predict_padded(img, 0.5, process_pool)
+
+        orig_bl_polys = self.__class__.baseline_to_poly_candidates(pred_orig.baselines, 5.0)
+        pad_bl_polys = self.__class__.baseline_to_poly_candidates(pred_pad.baselines, 5.0)
+
+
+        for i, pad_poly in enumerate(pad_bl_polys):
+            # see if we intersect with an original poly
+            replaced = False
+            for op in orig_bl_polys:
+                if pad_poly.intersection(op).area / pad_poly.union(op).area > 0:
+                    if len(pred_orig.baselines[i]) < 0.8 * len(pred_pad.baselines[i]):
+                        pred_orig.baselines[i] = pred_pad.baselines[i]
+                        replaced = True
+                    else:
+                        break
+
+                    # maybe replace
+                    # now we have to decide which baseline we choose
+            else:
+                # we didn't find this baseline, append it
+                if not replaced:
+                    pred_orig.baselines.append(pred_pad.baselines[i])
+        seen = set()
+        new_baselines = [] # deduplicate
+        for bl in pred_orig.baselines:
+            if id(bl) in seen:
+                continue
+            else:
+                new_baselines.append(bl)
+                seen.add(id(bl))
+        pred_orig.baselines = new_baselines
+        return pred_orig, scaled_image
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -150,6 +216,8 @@ def parse_args():
                         help="Use SchnipSchnip Algorithm to cut Regions into lines")
     parser.add_argument("--layout_method", type=str, choices=["linesonly", "analyse", "analyse+schnipschnip", "full"])
     parser.add_argument("--twosteps", action="store_true", help="Run two step prediction")
+    parser.add_argument("--bigtextdetector", action="store_true", help="Use Big Text Detector")
+
 
     return parser.parse_args()
 
@@ -157,6 +225,7 @@ def parse_args():
 def two_step_file_func(data):
     args, prediction, file = data
     source_image = SourceImage.load(file)
+    #imageio.imwrite(f"/tmp/ol2pad/img/{os.path.basename(file)}", source_image.array()) # todo remove
     scaled_image = source_image.scaled(prediction.prediction_scale_factor)
 
     if args.export_path:
@@ -206,13 +275,19 @@ def main():
         # To improve CPU prediction performance, maybe prefetch img load and run distance_matrix on multiple cores
 
     nn_predictor = Predictor(settings)
+    btd = BigTextDetector(nn_predictor)
     if not args.twosteps:
         with multiprocessing.Pool(args.processes) as process_pool:
             for file in tqdm(files):
                 logger.info("Processing: {} \n".format(file))
                 source_image = SourceImage.load(file)
 
-                prediction, scaled_image = nn_predictor.predict_image(source_image, process_pool=process_pool)
+                if args.bigtextdetector:
+                    prediction, scaled_image = btd.predict(source_image, process_pool)
+                else:
+                    prediction, scaled_image = nn_predictor.predict_image(source_image, process_pool=process_pool)
+
+
 
                 if args.export_path:
                     bname_json = os.path.splitext(os.path.basename(file))[0] + ".blp.json"
@@ -248,9 +323,14 @@ def main():
         with multiprocessing.Pool() as pool:
             for file in files:
                 logger.info("Processing: {} \n".format(file))
-                source_image = SourceImage.load(file)
+                source_image = SourceImage.load(file).scaled(0.5) # todo remove
+                source_image.scale_factor = 1.0 # todo remove
 
-                prediction, _ = nn_predictor.predict_image(source_image, process_pool=pool)
+                if args.bigtextdetector:
+                    prediction, _ = btd.predict(source_image, pool)
+                else:
+                    prediction, _ = nn_predictor.predict_image(source_image, process_pool=pool)
+
                 predictions.append(prediction)
 
             data = [(args, pred, file) for pred, file in zip(predictions, files)]

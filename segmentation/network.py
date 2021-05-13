@@ -1,3 +1,5 @@
+import imageio
+
 from segmentation.dataset import dirs_to_pandaframe, load_image_map_from_file, MaskDataset, compose, post_transforms
 from albumentations import (HorizontalFlip, ShiftScaleRotate, Normalize, Resize, Compose, GaussNoise)
 import gc
@@ -59,7 +61,6 @@ def pad(tensor, factor=32):
     if h_dif != 0 or x_dif != 0:
         augmented_image = torch.nn.functional.pad(input=tensor, pad=[0, x_dif, 0, h_dif])
     return augmented_image
-
 
 def unpad(tensor, o_shape):
     output = tensor[:, :, :o_shape[0], :o_shape[1]]
@@ -125,6 +126,10 @@ def train(model, device, train_loader, optimizer, epoch, criterion, accumulation
     correct_train = 0
 
     for batch_idx, (data, target, id) in enumerate(train_loader):
+        from matplotlib import pyplot as plt
+        imgg = np.dstack(data[0])
+        imageio.imwrite(f"/tmp/dbg-images/{epoch}-{batch_idx}.png",imgg,compression=1)
+
 
         data, target = data.to(device), target.to(device, dtype=torch.int64)
 
@@ -294,7 +299,7 @@ class Network(object):
             self.settings.VAL_DATASET.preprocessing = sm.encoders.get_preprocessing_fn(self.settings.ENCODER)
         device = "cuda" if torch.cuda.is_available() else "cpu"
         logger.info('Device: {} is used for training/prediction\n'.format(device))
-        custom_model = custom_model if custom_model else json_file["CUSTOM_MODEL"]
+        custom_model = custom_model if custom_model else (json_file["CUSTOM_MODEL"] if json_file else None)
         self.device = torch.device(device)
         self.model_params = None
         if not custom_model:

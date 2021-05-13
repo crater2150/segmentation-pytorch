@@ -6,7 +6,6 @@ import numpy as np
 from doxapy.binarization import BinarizationAlgorithm, binarize, _needs_binarization
 
 
-
 class SourceImage:
     fail_on_binarize = False
 
@@ -65,5 +64,15 @@ class SourceImage:
 
     def get_height(self):
         return int(self.array().shape[0])
+
+    # todo: padding_factor will not be stored in the source_image
+    def pad(self, factor=0.5) -> 'SourceImage':
+        ow, oh = self.get_width(), self.get_height()
+        scaled = self.scaled(factor)
+        new_im = Image.new("RGB", (ow,oh))  # todo: what if the source image is greyscale
+        new_im.paste(scaled.pil_image, (((ow - scaled.get_width()) // 2),
+                                       ((oh - scaled.get_height()) // 2)))
+        return SourceImage(new_im)
+
 
 
