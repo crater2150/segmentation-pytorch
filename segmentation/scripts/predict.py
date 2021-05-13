@@ -149,10 +149,10 @@ class BigTextDetector:
         for i, pad_poly in enumerate(pad_bl_polys):
             # see if we intersect with an original poly
             replaced = False
-            for op in orig_bl_polys:
+            for orig_i, op in enumerate(orig_bl_polys):
                 if pad_poly.intersection(op).area / pad_poly.union(op).area > 0:
-                    if len(pred_orig.baselines[i]) < 0.8 * len(pred_pad.baselines[i]):
-                        pred_orig.baselines[i] = pred_pad.baselines[i]
+                    if len(pred_orig.baselines[orig_i]) < 0.8 * len(pred_pad.baselines[orig_i]):
+                        pred_orig.baselines[orig_i] = pred_pad.baselines[i]
                         replaced = True
                     else:
                         break
