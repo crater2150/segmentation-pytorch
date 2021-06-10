@@ -3,6 +3,7 @@ import multiprocessing
 import warnings
 
 from segmentation.postprocessing.data_classes import PredictionResult
+from segmentation.postprocessing.layout_settings import LayoutProcessingMethod
 from segmentation.preprocessing.source_image import SourceImage
 from segmentation.scripts.layout import process_layout, LayoutProcessingSettings
 from flask import Flask, request
@@ -45,8 +46,7 @@ def main():
 
     prediction = PredictionResult(baselines=baselines, prediction_shape=list(img.array().shape))
     layout_settings = LayoutProcessingSettings(marginalia_postprocessing=False,
-                                               source_scale=True, lines_only=False,
-                                               schnip_schnip=True)
+                                               source_scale=True, layout_method=LayoutProcessingMethod.ANALYSE_SCHNIPSCHNIP)
 
     analyzed_content = process_layout(prediction, img, multiprocessing.Pool(2), layout_settings)
     xml_gen = analyzed_content.export(img, args.image_file, simplified_xml=False)

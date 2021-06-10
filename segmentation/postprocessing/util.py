@@ -4,6 +4,7 @@ from typing import List, Tuple
 import cv2
 import numpy as np
 from skimage.morphology import skeletonize
+from collections import defaultdict
 
 
 def baseline_to_bbox(baseline, margin_top=12, margin_bot=10, margin_left=10, margin_right=10):
@@ -93,3 +94,58 @@ class NewImageReconstructor:
     @staticmethod
     def reconstructed_where(reconstructed, positive):
         return np.where(np.all(reconstructed == positive, axis=2), 255, 0, dtype=np.uint8)
+
+
+class UnionFind:
+
+    @staticmethod
+    def from_count(element_count: int):
+        return UnionFind(range(element_count))
+
+    @staticmethod
+    def from_max_label(max_label: int):
+        return UnionFind.from_count(int(max_label) + 1)
+
+    def __init__(self, iterable):  # e.g. use range(100) for 100 nodes
+        self.tree = list(iterable)
+
+    def __iter__(self):
+        return iter(self.tree)
+
+    def find(self, element: int) -> int:
+        tree = self.tree
+        cur = element
+        if tree[cur] == cur: return cur
+
+        # find parent
+        while True:
+            cur = tree[cur]
+            if tree[cur] == cur: break
+        parent = cur
+
+        # compress
+        cur = element
+        while tree[cur] != cur:
+            tree[cur], cur = parent, tree[cur]
+        return parent
+
+    def union2(self, element1: int, element2: int):
+        par1 = self.find(element1)
+        par2 = self.find(element2)
+        self.tree[par2] = par1
+        return self
+
+    def union_iterable(self, iterable):
+        for e1, e2 in iterable:
+            self.union2(e1, e2)
+        return self
+
+    # returns a dict of lists
+    # each item in the dict is a connected component, the list elements
+    # describe the indices of all the elements in that CC
+    def get_sets(self):
+        ccs = defaultdict(list)
+        for id, _ in enumerate(self.tree):
+            parent = self.find(id)
+            ccs[parent].append(id)
+        return ccs

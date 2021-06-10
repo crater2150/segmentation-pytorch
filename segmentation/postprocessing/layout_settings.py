@@ -7,6 +7,7 @@ class LayoutProcessingMethod(Enum):
     ANALYSE = "analyse"
     ANALYSE_SCHNIPSCHNIP = "analyse+schnipschnip"
     FULL = "full"
+    FULL_REGIONSONLY = "full+regionsonly"
 
 
 class LayoutProcessingSettings(NamedTuple):
@@ -17,7 +18,6 @@ class LayoutProcessingSettings(NamedTuple):
     schnip_schnip_height_diff_factor: int = -2
     fix_line_endings: bool = True
     debug_show_fix_line_endings: bool = False
-
 
     @staticmethod
     def from_cmdline_args(args):
