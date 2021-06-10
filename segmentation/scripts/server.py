@@ -23,8 +23,7 @@ def schnipschnip():
 
     prediction = PredictionResult(baselines=baselines, prediction_shape=list(img.array().shape))
     layout_settings = LayoutProcessingSettings(marginalia_postprocessing=False,
-                                               source_scale=True, lines_only=False,
-                                               schnip_schnip=True)
+                                               source_scale=True, layout_method=LayoutProcessingMethod.ANALYSE_SCHNIPSCHNIP)
 
     analyzed_content = process_layout(prediction, img, multiprocessing.Pool(2), layout_settings)
     xml_gen = analyzed_content.export(img, image_path, simplified_xml=False)
