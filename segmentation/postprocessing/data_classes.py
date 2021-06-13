@@ -31,7 +31,7 @@ class BaselineResult(NamedTuple):
         return np.mean([t[1] for t in self.baseline])
 
 
-class BboxCluster():
+class BboxCluster:
 
     def __init__(self, baselines, bbox):
         self.baselines: List[BaselineResult] = baselines

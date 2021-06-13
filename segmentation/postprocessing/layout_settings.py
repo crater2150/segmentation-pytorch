@@ -7,6 +7,7 @@ class LayoutProcessingMethod(Enum):
     ANALYSE = "analyse"
     ANALYSE_SCHNIPSCHNIP = "analyse+schnipschnip"
     FULL = "full"
+    SCHNIPSCHNIP_REGIONSONLY = "schnipschnip+regionsonly"
     FULL_REGIONSONLY = "full+regionsonly"
 
 
