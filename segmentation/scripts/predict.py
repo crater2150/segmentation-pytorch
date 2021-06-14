@@ -15,7 +15,7 @@ from segmentation.postprocessing.baseline_graph import BaselineGraph
 from segmentation.postprocessing.data_classes import PredictionResult
 from segmentation.postprocessing.layout_analysis import get_top_of_baselines
 from segmentation.postprocessing.layout_processing import process_layout
-from segmentation.postprocessing.layout_settings import LayoutProcessingSettings
+from segmentation.postprocessing.layout_settings import LayoutProcessingSettings, LayoutProcessingMethod
 from segmentation.preprocessing.source_image import SourceImage
 from segmentation.scripts.layout import layout_debugging
 from segmentation.settings import PredictorSettings
@@ -214,7 +214,7 @@ def parse_args():
                         help="line height factor for SchnipSchnip. Use more negative value, if detected lines are not high enough")
     parser.add_argument("--schnipschnip", action="store_true",
                         help="Use SchnipSchnip Algorithm to cut Regions into lines")
-    parser.add_argument("--layout_method", type=str, choices=["linesonly", "analyse", "analyse+schnipschnip", "full"])
+    parser.add_argument("--layout_method", type=str, choices=[v.value for v in LayoutProcessingMethod])
     parser.add_argument("--twosteps", action="store_true", help="Run two step prediction")
     parser.add_argument("--bigtextdetector", action="store_true", help="Use Big Text Detector")
 

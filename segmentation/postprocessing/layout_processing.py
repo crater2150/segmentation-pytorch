@@ -6,6 +6,8 @@ from typing import List
 from typing import NamedTuple
 
 import numpy as np
+import shapely.ops
+from shapely.geometry import Polygon
 
 from segmentation.gui.xml_util import TextRegion, BaseLine, TextLine, XMLGenerator
 from segmentation.postprocessing.baselines_util import scale_baseline, make_baseline_continous, simplify_baseline, \
@@ -27,13 +29,19 @@ class AnalyzedRegion:
     baselines: List
     lines_polygons: List
     cutouts: List
+    region_polygon: List = None
 
     def scale(self, scale_factor:float = 1):
         baselines = [scale_baseline(bl, scale_factor) for bl in self.baselines]
         lines_polygons = [scale_baseline(lp.poly if type(lp) is not list else lp, scale_factor) for lp in self.lines_polygons]
         bbx = self.bbox.scale(scale_factor)
-        return AnalyzedRegion(bbox=bbx, baselines=baselines, lines_polygons=lines_polygons, cutouts=None) # todo scale cutouts
+        return AnalyzedRegion(bbox=bbx, baselines=baselines, lines_polygons=lines_polygons, cutouts=None) # TODO: scale cutouts
 
+    def get_region_polygon(self):
+        if self.region_polygon:
+            return self.region_polygon
+        else:
+            return self.bbox.bbox
 
 @dataclass
 class AnalyzedContent:
@@ -70,7 +78,7 @@ class AnalyzedContent:
                 text_lines = []
                 for bline, tline in zip(reg.baselines, reg.lines_polygons):
                     text_lines.append(TextLine(coords=tline, baseline=BaseLine(bline)))
-                regions.append(TextRegion(text_lines, coords=reg.bbox.bbox))
+                regions.append(TextRegion(text_lines, coords=reg.get_region_polygon()))
 
         elif self.bboxs is not None:
             # Layout segmentation is done, save baselines inside the regions
@@ -167,7 +175,7 @@ def process_layout_linesonly(prediction: PredictionResult, scaled_image: SourceI
 def process_layout_analyse(prediction: PredictionResult, scaled_image: SourceImage, process_pool, settings:LayoutProcessingSettings) -> AnalyzedContent:
     analyzed_content = AnalyzedContent(baselines=prediction.baselines,
                                        bboxs=complex_layout(prediction, scaled_image, settings, process_pool))
-    if settings.layout_method == LayoutProcessingMethod.ANALYSE_SCHNIPSCHNIP:
+    if settings.layout_method == LayoutProcessingMethod.ANALYSE_SCHNIPSCHNIP or settings.layout_method == LayoutProcessingMethod.SCHNIPSCHNIP_REGIONSONLY:
         bbox: BboxCluster
         analyzed_content.regions = []
         all_lines: List[LinePoly] = []
@@ -233,11 +241,23 @@ def process_layout_full(prediction: PredictionResult, scaled_image: SourceImage,
         all_lines.extend([LinePoly(p, c) for p, c in zip(polygons, cutouts)])
 
 
+def merge_regions(content: AnalyzedContent) -> AnalyzedContent:
+
+    for region in content.regions:
+        lp = [Polygon(p).buffer(0.5) for p in region.lines_polygons]
+        region_p = shapely.ops.unary_union(lp).buffer(-0.5)
+        # create a shapely object from these
+        region.region_polygon = region_p
+    return content
 
 def process_layout(prediction: PredictionResult, scaled_image: SourceImage, process_pool, settings:LayoutProcessingSettings) -> AnalyzedContent:
     if settings.layout_method == LayoutProcessingMethod.LINES_ONLY:
         return process_layout_linesonly(prediction, scaled_image, process_pool, settings)
-    elif settings.layout_method in {LayoutProcessingMethod.ANALYSE, LayoutProcessingMethod.ANALYSE_SCHNIPSCHNIP}:
-        return process_layout_analyse(prediction, scaled_image, process_pool, settings)
+    elif settings.layout_method in {LayoutProcessingMethod.ANALYSE, LayoutProcessingMethod.ANALYSE_SCHNIPSCHNIP, LayoutProcessingMethod.SCHNIPSCHNIP_REGIONSONLY}:
+        analysed_content = process_layout_analyse(prediction, scaled_image, process_pool, settings)
+        if settings.layout_method == LayoutProcessingMethod.SCHNIPSCHNIP_REGIONSONLY:
+            return merge_regions(analysed_content)
+        else:
+            return analysed_content
     else:
         return process_layout_full(prediction, scaled_image, process_pool, settings)
