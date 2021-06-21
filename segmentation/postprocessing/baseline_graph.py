@@ -1,17 +1,12 @@
 from dataclasses import dataclass, field
+from typing import List, Tuple, Optional
 
+import numpy as np
 from PIL import ImageDraw
 
 from segmentation.postprocessing.baselines_util import make_baseline_continous
-from segmentation.postprocessing.data_classes import PredictionResult, MovedBaselineTop
-import numpy as np
-from typing import List, Tuple, Set, Optional
-
-from segmentation.postprocessing.layout_processing import AnalyzedContent
+from segmentation.postprocessing.data_classes import MovedBaselineTop
 from segmentation.postprocessing.util import show_images
-
-from segmentation.preprocessing.source_image import SourceImage
-from segmentation.util import PerformanceCounter
 
 Point = Tuple[int,int]
 LinePoints = List[Point]
@@ -205,15 +200,5 @@ class BaselineGraph:
                     draw.line((p1[0], p1[1], p2[0], p2[1]), fill=(0, 255, 255), width=4)
         show_images([np.array(im)], interpolation="bilinear")
         #return rgb
-
-
-class MarginaliaSeperator:
-    def __init__(self):
-        pass
-
-    def detect_marginalia(self, content: AnalyzedContent):
-        pass
-
-
 
 

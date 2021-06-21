@@ -1,10 +1,8 @@
 import itertools
 import os
 from dataclasses import dataclass
-from enum import Enum
 from functools import partial
 from typing import List
-from typing import NamedTuple
 
 import numpy as np
 import shapely.ops
@@ -22,7 +20,7 @@ from segmentation.postprocessing.layout_settings import LayoutProcessingSettings
 from segmentation.postprocessing.util import UnionFind
 from segmentation.preprocessing.source_image import SourceImage
 from segmentation.util import PerformanceCounter
-from segmentation.util import logger
+
 
 # this structure should contain the finished content information of the page in PageXML coordinate space
 @dataclass
@@ -369,3 +367,12 @@ def process_layout(prediction: PredictionResult, scaled_image: SourceImage, proc
             return merge_regions(analyzed_content)
         else:
             return analyzed_content
+
+
+class MarginaliaSeperator:
+    def __init__(self):
+        pass
+
+    def detect_marginalia(self, content: AnalyzedContent):
+        pass
+
