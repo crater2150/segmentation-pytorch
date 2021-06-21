@@ -7,6 +7,7 @@ from segmentation.postprocessing.data_classes import PredictionResult, MovedBase
 import numpy as np
 from typing import List, Tuple, Set, Optional
 
+from segmentation.postprocessing.layout_processing import AnalyzedContent
 from segmentation.postprocessing.util import show_images
 
 from segmentation.preprocessing.source_image import SourceImage
@@ -206,9 +207,11 @@ class BaselineGraph:
         #return rgb
 
 
+class MarginaliaSeperator:
+    def __init__(self):
+        pass
 
-
-
+    def detect_marginalia(self, content: AnalyzedContent):
 
 
 

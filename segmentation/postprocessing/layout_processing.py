@@ -1,3 +1,4 @@
+import itertools
 import os
 from dataclasses import dataclass
 from enum import Enum
@@ -16,8 +17,9 @@ from segmentation.postprocessing.data_classes import PredictionResult, BboxClust
 from segmentation.postprocessing.layout_analysis import get_top_of_baselines, get_top_of_baselines_improved, analyse, \
     connect_bounding_box
 from segmentation.postprocessing.layout_line_segment import schnip_schnip_algorithm, cutout_to_polygon, PageContours, \
-    fix_cutout_lineendings, LinePoly, CutoutElem, schnip_schnip_algorithm_old, BaselineHashedLookup
+    fix_cutout_lineendings, LinePoly, CutoutElem, schnip_schnip_algorithm_old, BaselineHashedLookup, BBox
 from segmentation.postprocessing.layout_settings import LayoutProcessingSettings, LayoutProcessingMethod
+from segmentation.postprocessing.util import UnionFind
 from segmentation.preprocessing.source_image import SourceImage
 from segmentation.util import PerformanceCounter
 from segmentation.util import logger
@@ -34,8 +36,15 @@ class AnalyzedRegion:
     def scale(self, scale_factor:float = 1):
         baselines = [scale_baseline(bl, scale_factor) for bl in self.baselines]
         lines_polygons = [scale_baseline(lp.poly if type(lp) is not list else lp, scale_factor) for lp in self.lines_polygons]
-        bbx = self.bbox.scale(scale_factor)
-        return AnalyzedRegion(bbox=bbx, baselines=baselines, lines_polygons=lines_polygons, cutouts=None) # TODO: scale cutouts
+        if self.bbox:
+            bbx = self.bbox.scale(scale_factor)
+        else:
+            bbx = None
+        if self.region_polygon:
+            rp = scale_baseline(self.region_polygon, scale_factor)
+        else:
+            rp = None
+        return AnalyzedRegion(bbox=bbx, baselines=baselines, lines_polygons=lines_polygons, cutouts=None, region_polygon=rp) # TODO: scale cutouts
 
     def get_region_polygon(self):
         if self.region_polygon:
@@ -55,7 +64,10 @@ class AnalyzedContent:
             return self
 
         undo_scale_factor = 1 / scale_factor
-        baselines = [scale_baseline(bl, undo_scale_factor) for bl in self.baselines]
+        if self.baselines:
+            baselines = [scale_baseline(bl, undo_scale_factor) for bl in self.baselines]
+        else:
+            baselines = None
         if self.regions:
             reg = [r.scale(undo_scale_factor) for r in self.regions]
         else:
@@ -241,14 +253,106 @@ def process_layout_full(prediction: PredictionResult, scaled_image: SourceImage,
         all_lines.extend([LinePoly(p, c) for p, c in zip(polygons, cutouts)])
 
 
-def merge_regions(content: AnalyzedContent) -> AnalyzedContent:
+def make_multipolygon_solid(mp: shapely.geometry.MultiPolygon):
+        if not isinstance(mp, list):
+            if mp.geom_type == 'Polygon':
+                mp = [mp]
+        while True:
+            for i, geom in enumerate(mp):
+                if len(geom.interiors) > 0:
+                    # then cut it
+                    nearest_points = shapely.ops.nearest_points(geom.interiors[0], geom.exterior)
+                    # splitter = shapely.geometry.LineString([geom.interiors[0].coords[0], geom.exterior.coords[0]]).buffer(1)
+                    splitter = shapely.geometry.LineString(list(nearest_points)).buffer(0.1)
+                    # split_geom = shapely.ops.split(geom, splitter)
+                    split_geom = geom.difference(splitter)
+                    # TODO: shoudn't this be
+                    # shapely.ops.unary_union mp[0:i] + [split_geom] + mp[i+1:] ?!?!
+                    mp = shapely.ops.unary_union([x for x in [mp[0:i], split_geom, mp[i + 1:]] if not x == []])
+                    if mp.geom_type == 'Polygon':
+                        mp = [mp]
+                    break
+            else:
+                break
 
-    for region in content.regions:
-        lp = [Polygon(p).buffer(0.5) for p in region.lines_polygons]
-        region_p = shapely.ops.unary_union(lp).buffer(-0.5)
-        # create a shapely object from these
-        region.region_polygon = region_p
-    return content
+        # either this will not halt or we will have properly splitted polygons
+        for geom in mp:
+            assert len(geom.interiors) == 0, "Something was not right during the splitting"
+        out_geoms = []
+        for geom in mp:
+            if len(geom.exterior.coords) < 3:
+                continue
+            else:
+                out_geoms.append(geom)
+        return out_geoms
+
+def merge_regions(content: AnalyzedContent) -> AnalyzedContent:
+    @dataclass
+    class DetectedLine:
+        id: int
+        polygon: Polygon
+        polygon_coords: list
+        baseline: list
+        bbox: BBox
+        cutout: list
+        buffered_polygon: Polygon = None
+        buffered_bbox = None
+
+    buffer_amount = 2
+    all_lines = []
+    for r in content.regions:
+        for bl, lp, co in zip(r.baselines, r.lines_polygons, r.cutouts):
+            all_lines.append(DetectedLine(len(all_lines) + 1,Polygon(lp),lp,bl, BBox.from_polygon(lp), co))
+
+    # buffer the polygon
+    for r in all_lines:
+        r.buffered_polygon = r.polygon.buffer(buffer_amount)
+        r.buffered_bbox = BBox.from_polygon(r.buffered_polygon.exterior.coords)
+
+    # make a union find data structure to find the regions
+    uf = UnionFind.from_count(len(all_lines))
+
+    # find all the intersections
+    for ia, a in enumerate(all_lines):
+        for ib, b in enumerate(all_lines):
+            if uf.find(ia) == uf.find(ib): continue
+            #if a.buffered_bbox.intersects(b.buffered_bbox):
+            if a.buffered_polygon.intersects(b.buffered_polygon): # Only use b.polygon to prevent touching polygons from unioning
+                uf.union2(ia, ib)
+
+    lines_grouped = []
+    for g in uf.get_sets().values():
+        lg = [all_lines[i] for i in g]
+        lines_grouped.append(lg)
+
+    final_regions = []
+    for g in lines_grouped:
+        region = AnalyzedRegion(bbox=None,
+                                baselines=[x.baseline for x in g],
+                                region_polygon=None,
+                                lines_polygons=[x.polygon_coords for x in g],
+                                cutouts=[x.cutout for x in g])
+        # make the unified region polygon
+        if len(g) == 1:
+            merged_poly = g[0].buffered_polygon
+        else:
+            merged_poly = shapely.ops.unary_union([Polygon(x.buffered_polygon.exterior).buffer(0) for x in g])
+            merged_poly = merged_poly.buffer(0)
+            if merged_poly.geom_type == "MultiPolygon":
+                p1,p2 = shapely.ops.nearest_points(merged_poly.geoms[0],merged_poly.geoms[1])
+                print(p1,p2)
+            while isinstance(merged_poly, shapely.geometry.MultiPolygon):
+                merged_poly = shapely.ops.unary_union(merged_poly)
+
+        pc = [(x[0], x[1]) for x in merged_poly.exterior.coords]
+        assert len(pc) > 2
+        region.region_polygon = pc
+        final_regions.append(region)
+
+    return AnalyzedContent(regions=final_regions,
+                           baselines=list(itertools.chain.from_iterable([x.baselines for x in final_regions])),
+                           lines_polygons=list(itertools.chain.from_iterable(x.lines_polygons for x in final_regions)))
+
 
 def process_layout(prediction: PredictionResult, scaled_image: SourceImage, process_pool, settings:LayoutProcessingSettings) -> AnalyzedContent:
     if settings.layout_method == LayoutProcessingMethod.LINES_ONLY:
@@ -259,5 +363,9 @@ def process_layout(prediction: PredictionResult, scaled_image: SourceImage, proc
             return merge_regions(analysed_content)
         else:
             return analysed_content
-    else:
-        return process_layout_full(prediction, scaled_image, process_pool, settings)
+    elif settings.layout_method in {LayoutProcessingMethod.FULL, LayoutProcessingMethod.FULL_REGIONSONLY}:
+        analyzed_content = process_layout_full(prediction, scaled_image, process_pool, settings)
+        if settings.layout_method == LayoutProcessingMethod.FULL_REGIONSONLY:
+            return merge_regions(analyzed_content)
+        else:
+            return analyzed_content

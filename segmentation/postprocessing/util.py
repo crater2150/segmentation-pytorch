@@ -1,8 +1,9 @@
 import itertools
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 import cv2
 import numpy as np
+from dataclasses import dataclass
 from skimage.morphology import skeletonize
 from collections import defaultdict
 
@@ -95,7 +96,6 @@ class NewImageReconstructor:
     def reconstructed_where(reconstructed, positive):
         return np.where(np.all(reconstructed == positive, axis=2), 255, 0, dtype=np.uint8)
 
-
 class UnionFind:
 
     @staticmethod
@@ -125,7 +125,7 @@ class UnionFind:
 
         # compress
         cur = element
-        while tree[cur] != cur:
+        while tree[cur] != parent:
             tree[cur], cur = parent, tree[cur]
         return parent
 
@@ -143,9 +143,42 @@ class UnionFind:
     # returns a dict of lists
     # each item in the dict is a connected component, the list elements
     # describe the indices of all the elements in that CC
-    def get_sets(self):
+    def get_sets(self) -> Dict[int, List[int]]:
         ccs = defaultdict(list)
         for id, _ in enumerate(self.tree):
             parent = self.find(id)
             ccs[parent].append(id)
+
         return ccs
+
+
+class BBox:
+    __slots__ = ["x1", "y1", "x2", "y2"]
+
+    def __init__(self, x1,y1,x2,y2):
+        self.x1 = x1
+        self.y1 = y1
+        self.x2 = x2
+        self.y2 = y2
+
+    def width(self):
+        return self.x2 - self.x1
+
+    def height(self):
+        return self.y2 - self.y1
+
+    def area(self):
+        return abs(self.width() * self.height())
+
+    def intersects(self, other: 'BBox'):
+        return (abs(self.x1 - other.x1) * 2 < (self.width() + other.width())) and \
+               (abs(self.y1 - other.y1) * 2 < (self.height() + other.height()))
+
+
+    @staticmethod
+    def from_polygon(p: List[Tuple]):
+        min_x = min(a[0] for a in p)
+        max_x = max(a[0] for a in p)
+        min_y = min(a[1] for a in p)
+        max_y = max(a[1] for a in p)
+        return BBox(min_x,min_y,max_x,max_y)

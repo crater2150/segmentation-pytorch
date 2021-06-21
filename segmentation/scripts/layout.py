@@ -72,8 +72,12 @@ def layout_debugging(args, analyzed_content, source_image, image_filename):
                     text_region_coord = bl + list(reversed(bl_top))
                     polys.append(text_region_coord)
                 debug_draw.draw_polygons(polys)
-        if args.show_layout and analyzed_content.bboxs:
-            debug_draw.draw_bboxs(analyzed_content.bboxs)
+        if args.show_layout and analyzed_content.bboxs or analyzed_content.regions:
+            if analyzed_content.bboxs:
+                debug_draw.draw_bboxs(analyzed_content.bboxs) # TODO: should this draw the BBoxs or the region polygons
+            elif analyzed_content.regions:
+                debug_draw.draw_polygons([x.region_polygon for x in analyzed_content.regions])
+
 
         if args.output_path_debug_images:
             basename = "debug_" + os.path.basename(image_filename)

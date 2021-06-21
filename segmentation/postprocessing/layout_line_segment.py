@@ -23,6 +23,7 @@ from segmentation.postprocessing.layout_settings import LayoutProcessingSettings
 from segmentation.postprocessing.util import NewImageReconstructor
 from segmentation.preprocessing.source_image import SourceImage
 from segmentation.util import logger
+from segmentation.postprocessing.util import BBox
 
 QueueElem = namedtuple("QueueElem", "f d point parent")
 # f is dist + heur, d is distance, n is node, p is parent
@@ -538,13 +539,6 @@ class LinePoly:
     #def __iter__(self):
     #    return iter(self.poly)
 
-@dataclass
-class BBox:
-    __slots__ = ["x1", "y1", "x2", "y2"]
-    x1: int
-    y1: int
-    x2: int
-    y2: int
 
 @dataclass
 class Contour:
