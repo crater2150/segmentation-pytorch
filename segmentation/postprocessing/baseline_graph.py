@@ -212,7 +212,7 @@ class MarginaliaSeperator:
         pass
 
     def detect_marginalia(self, content: AnalyzedContent):
-
+        pass
 
 
 
