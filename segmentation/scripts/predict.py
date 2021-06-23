@@ -166,8 +166,7 @@ def main():
         with multiprocessing.Pool() as pool:
             for file in files:
                 logger.info("Processing: {} \n".format(file))
-                source_image = SourceImage.load(file).scaled(0.5) # todo remove
-                source_image.scale_factor = 1.0 # todo remove
+                source_image = SourceImage.load(file)
 
                 if args.bigtextdetector:
                     prediction, _ = btd.predict(source_image, pool)

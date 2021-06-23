@@ -60,6 +60,8 @@ class AnalyzedContent:
     def to_pagexml_space(self, scale_factor: float) -> 'AnalyzedContent':
         if scale_factor == 1 or scale_factor == 1.0:
             return self
+        else:
+            pass
 
         undo_scale_factor = 1 / scale_factor
         if self.baselines:
