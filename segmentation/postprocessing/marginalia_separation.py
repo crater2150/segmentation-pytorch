@@ -25,7 +25,7 @@ def bl_graph_to_nx_dag(blg: BaselineGraph):
 class MainTextBodyParameters:
     min_col_width: float = 0.22
     simple_block_detection: bool = True
-    simple_block_min_lines: int = 5
+    simple_block_min_lines: int = 3
     simple_block_max_std_dev = 0.02
 
 
