@@ -10,7 +10,7 @@ import numpy as np
 from sklearn.cluster import DBSCAN
 
 from segmentation.postprocessing.data_classes import BboxCluster, BaselineResult, MovedBaselineTop
-
+from segmentation.postprocessing.baselines_util import make_baseline_continous
 '''
 Todo: Refactor file
 '''
@@ -42,6 +42,9 @@ class Baseline(Iterable):
 
     def __iter__(self):
         return iter(self.points)
+
+    def continuous(self) -> 'Baseline':
+        return Baseline(make_baseline_continous(self.points))
 
 
 class BaselinePrediction:

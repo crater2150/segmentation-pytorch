@@ -17,6 +17,7 @@ from segmentation.postprocessing.layout_analysis import get_top_of_baselines, ge
 from segmentation.postprocessing.layout_line_segment import schnip_schnip_algorithm, cutout_to_polygon, PageContours, \
     fix_cutout_lineendings, LinePoly, CutoutElem, schnip_schnip_algorithm_old, BaselineHashedLookup, BBox
 from segmentation.postprocessing.layout_settings import LayoutProcessingSettings, LayoutProcessingMethod
+from segmentation.postprocessing.marginalia_separation import MainTextBodyDetector
 from segmentation.postprocessing.util import UnionFind
 from segmentation.preprocessing.source_image import SourceImage
 from segmentation.util import PerformanceCounter
@@ -217,41 +218,20 @@ def process_layout_analyse(prediction: PredictionResult, scaled_image: SourceIma
 def process_layout_full(prediction: PredictionResult, scaled_image: SourceImage, process_pool, settings:LayoutProcessingSettings) -> AnalyzedContent:
 
     cutouts = schnip_schnip_algorithm(scaled_image, prediction, settings)
-
     if settings.fix_line_endings:
         contours = PageContours(scaled_image, dilation_amount=1)
         lines = fix_cutout_lineendings(cutouts, contours)
     else:
+        contours = None
         cutout_polys = [cutout_to_polygon(co, scaled_image) for co in cutouts]
         lines = [LinePoly(poly, co) for poly, co in zip(cutout_polys, cutouts)]
 
-    if settings.debug_show_fix_line_endings:
+    if settings.debug_show_fix_line_endings and settings.fix_line_endings:
         show_fix_line_endings(scaled_image, lines, contours or PageContours(scaled_image, dilation_amount=1))
     reg = lines_to_analysed_content(lines, scaled_image=scaled_image)
 
 
     return reg
-
-    new_prediction = PredictionResult([c.bl for c in cutouts], prediction.prediction_shape, prediction.prediction_scale_factor)
-
-    bboxs = complex_layout(new_prediction,scaled_image,settings)
-
-    # analyse the layout
-    bboxs = complex_layout(new_prediction, scaled_image, settings, process_pool)
-
-    bl_lookup = BaselineHashedLookup(prediction.baselines)
-
-
-    for bbox in analyzed_content.bboxs:
-        bbox_bl_indices = [bl_lookup.get_index(bl.baseline) for bl in bbox.baselines]
-        bbox_cutouts = [cutouts[idx] for idx in bbox_bl_indices]
-        polygons = [cutout_to_polygon(c) for c in bbox_cutouts]
-        analyzed_content.regions.append(
-            AnalyzedRegion(bbox, [c.bl for c in bbox_cutouts],
-                           polygons, bbox_cutouts)
-        )
-        all_lines.extend([LinePoly(p, c) for p, c in zip(polygons, cutouts)])
-
 
 def make_multipolygon_solid(mp: shapely.geometry.MultiPolygon):
         if not isinstance(mp, list):
@@ -355,6 +335,10 @@ def merge_regions(content: AnalyzedContent) -> AnalyzedContent:
 
 
 def process_layout(prediction: PredictionResult, scaled_image: SourceImage, process_pool, settings:LayoutProcessingSettings) -> AnalyzedContent:
+    if settings.marginalia_cut:
+        mtbd = MainTextBodyDetector(prediction.baselines, scaled_image)
+        mtbd.simple_main_text_body()
+
     if settings.layout_method == LayoutProcessingMethod.LINES_ONLY:
         return process_layout_linesonly(prediction, scaled_image, process_pool, settings)
     elif settings.layout_method in {LayoutProcessingMethod.ANALYSE, LayoutProcessingMethod.ANALYSE_SCHNIPSCHNIP, LayoutProcessingMethod.SCHNIPSCHNIP_REGIONSONLY}:

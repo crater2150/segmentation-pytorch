@@ -24,3 +24,4 @@ dataclasses_json
 dataclasses
 adabelief-pytorch
 git+https://gitlab2.informatik.uni-wuerzburg.de/nof36hn/binarizer-doxa.git
+networkx~=2.5

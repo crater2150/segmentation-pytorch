@@ -174,7 +174,7 @@ class BaselineGraph:
                 if node.label not in below.get_above_labels_set(): return False
         return True
 
-    def visualize(self, base_img):
+    def visualize(self, base_img, only_baseline=False):
         # make the labeled image rgb
         if base_img is not None:
             rgb = base_img
@@ -189,15 +189,19 @@ class BaselineGraph:
         draw = ImageDraw.Draw(im)
         for node in self.nodes:
             for bel in node.below:
-                draw.line((node.baseline.points[0][0], node.baseline.points[0][1], bel.baseline.points[0][0], bel.baseline.points[0][1]), fill=(255, 0, 0), width=4)
+                if node.baseline.points and bel.baseline.points:
+                    draw.line((node.baseline.points[0][0], node.baseline.points[0][1], bel.baseline.points[0][0], bel.baseline.points[0][1]), fill=(255, 0, 0), width=4)
             for p1,p2 in zip(node.baseline.points, node.baseline.points[1:]):
                 draw.line((p1[0],p1[1],p2[0],p2[1]), fill=(0,0,255),width=4)
+            try:
 
-            if node.above:
-                merged_tl = node.get_merged_line_above(node.topline.points)
+                if node.above and not only_baseline:
+                    merged_tl = node.get_merged_line_above(node.topline.points)
 
-                for p1, p2 in zip(merged_tl, merged_tl[1:]):
-                    draw.line((p1[0], p1[1], p2[0], p2[1]), fill=(0, 255, 255), width=4)
+                    for p1, p2 in zip(merged_tl, merged_tl[1:]):
+                        draw.line((p1[0], p1[1], p2[0], p2[1]), fill=(0, 255, 255), width=4)
+            except:
+                pass # TODO: this does not work for marginalia seperation (simple) fix
         show_images([np.array(im)], interpolation="bilinear")
         #return rgb
 
