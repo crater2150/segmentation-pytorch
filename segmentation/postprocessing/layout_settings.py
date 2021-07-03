@@ -19,7 +19,7 @@ class LayoutProcessingSettings(NamedTuple):
     schnip_schnip_height_diff_factor: int = -2
     fix_line_endings: bool = True
     debug_show_fix_line_endings: bool = False
-    marginalia_cut: bool = True
+    marginalia_cut: bool = False
 
     @staticmethod
     def from_cmdline_args(args):

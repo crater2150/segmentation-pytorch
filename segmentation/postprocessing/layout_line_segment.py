@@ -474,7 +474,7 @@ def schnip_schnip_algorithm(scaled_image: SourceImage, prediction: PredictionRes
         extruded.get_baselines(),
         extruded.get_toplines(),
         scaled_image.get_width(), scaled_image.get_height())
-    blg.visualize(scaled_image.array())
+    # blg.visualize(scaled_image.array())# TODO: this is just for debugging
 
     #assert blg.is_symmetrical()
     # blg.visualize(scaled_image.array())

@@ -1,10 +1,12 @@
 import argparse
 import json
+import math
 import multiprocessing
 import warnings
 
 import torch
 
+from segmentation.postprocessing.baselines_util import make_baseline_continous
 from segmentation.postprocessing.data_classes import PredictionResult
 from segmentation.postprocessing.layout_settings import LayoutProcessingMethod
 from segmentation.predictors import PredictionSettings, Predictor
@@ -12,7 +14,7 @@ from segmentation.preprocessing.source_image import SourceImage
 from segmentation.scripts.layout import process_layout, LayoutProcessingSettings
 from flask import Flask, request
 
-from segmentation.util import PerformanceCounter
+from segmentation.util import PerformanceCounter, logger
 
 app = Flask("segmentation server")
 try:
@@ -29,6 +31,8 @@ except:
     print("Cannot load model.")
     nn_predictor = None
 
+SERVER_LAYOUT_METHOD = LayoutProcessingMethod.FULL
+
 @app.route("/schnipschnip", methods=["POST"])
 def schnipschnip():
     data = request.get_json()
@@ -42,11 +46,92 @@ def schnipschnip():
 
     prediction = PredictionResult(baselines=baselines, prediction_shape=list(img.array().shape))
     layout_settings = LayoutProcessingSettings(marginalia_postprocessing=False,
-                                               source_scale=True, layout_method=LayoutProcessingMethod.ANALYSE_SCHNIPSCHNIP)
+                                               source_scale=True, layout_method=SERVER_LAYOUT_METHOD)
 
     analyzed_content = process_layout(prediction, img, multiprocessing.Pool(2), layout_settings)
     xml_gen = analyzed_content.export(img, image_path, simplified_xml=False)
     return xml_gen.baselines_to_xml_string()
+
+class LineSegment:
+
+    def __init__(self, p1x, p1y, p2x, p2y):
+        self.p1x, self.p1y, self.p2x, self.p2y = p1x, p1y, p2x, p2y
+        self.len = math.sqrt((self.p2x - self.p1x)**2 + (self.p2y - self.p1y)**2)
+
+    def point_distance(self, px, py):
+        return abs((self.p2x - self.p1x) * (self.p1y - py) - (self.p1x - px) * (self.p2y - self.p1y)) / self.len
+
+
+def marginalia_cut_baseline_by_line(cont_baselines, cut_line_seg):
+    cut_baselines = []
+    CUT_DIST = 1
+    MIN_LENGTH = 5
+    for bl_i, bl in enumerate(cont_baselines):
+        cut_index = None
+        for pi, (px, py) in enumerate(bl[MIN_LENGTH:-MIN_LENGTH], start=MIN_LENGTH):
+            if cut_line_seg.point_distance(px, py) <= CUT_DIST:
+                cut_index = pi
+                break
+        else:
+            # we didn't cut this baseline
+            cut_baselines.append(bl)
+            logger.debug(f"Leaving baseline {bl_i}\n")
+            continue
+
+        # we have a cut index
+        if cut_index >= MIN_LENGTH:
+            cut_baselines.append(bl[:cut_index])
+            logger.debug(f"Appending first part of {bl_i}\n")
+        # else: discard the leading part
+
+
+        # find where the cut stops
+        cut_end = None
+
+        for pi, (px,py) in enumerate(bl[cut_index:], start=cut_index):
+            if cut_line_seg.point_distance(px,py) > CUT_DIST:
+                cut_end = pi
+                break
+        if cut_end is not None:
+            # we have cut away something
+            if len(bl[cut_end:]) > MIN_LENGTH:
+                cut_baselines.append(bl[cut_end:])
+                logger.debug(f"Appending last part of {bl_i}\n")
+
+    return cut_baselines
+
+
+@app.route("/marginaliaCut", methods=["POST"])
+def marginalia_cut():
+    data = request.get_json()
+    print(data)
+    image_path = data["image_path"]
+    baselines = data["baselines"]
+    if len(data["cutline"]) != 2:
+        return "error", 500
+
+    cut_line_p1x = float(data["cutline"][0]["x"])
+    cut_line_p1y = float(data["cutline"][0]["y"])
+    cut_line_p2x = float(data["cutline"][1]["x"])
+    cut_line_p2y = float(data["cutline"][1]["y"])
+
+    cut_line_seg = LineSegment(cut_line_p1x, cut_line_p1y, cut_line_p2x, cut_line_p2y)
+    baselines = [bl["points"] for bl in baselines]
+    baselines = [[(round(p["x"]), round(p["y"])) for p in bl] for bl in baselines]
+    cont_baselines = [make_baseline_continous(bl) for bl in baselines]
+    cut_baselines = marginalia_cut_baseline_by_line(cont_baselines, cut_line_seg)
+
+    img = SourceImage.load(image_path)
+
+    prediction = PredictionResult(baselines=cut_baselines, prediction_shape=list(img.array().shape))
+    layout_settings = LayoutProcessingSettings(marginalia_postprocessing=False,
+                                               source_scale=True,
+                                               layout_method=SERVER_LAYOUT_METHOD)
+
+    analyzed_content = process_layout(prediction, img, multiprocessing.Pool(2), layout_settings)
+    xml_gen = analyzed_content.export(img, image_path, simplified_xml=False)
+    return xml_gen.baselines_to_xml_string()
+
 
 @app.route("/oneclick", methods=["POST"])
 def oneclick():
