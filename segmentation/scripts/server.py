@@ -23,8 +23,8 @@ from segmentation.util import PerformanceCounter, logger
 
 app = Flask("segmentation server")
 try:
-    #settings = PredictionSettings(["/opt/segmentation-models/model136.torch"], 1000000, None, None)
-    settings = PredictionSettings(["/home/norbert/share/BaselineModEval/mod/model_136.torch"], 1000000, None, None)
+    settings = PredictionSettings(["/opt/segmentation-models/model136.torch"], 1000000, None, None)
+    #settings = PredictionSettings(["/home/norbert/share/BaselineModEval/mod/model_136.torch"], 1000000, None, None)
 
     if not torch.cuda.is_available():
         torch.set_num_threads(multiprocessing.cpu_count())
