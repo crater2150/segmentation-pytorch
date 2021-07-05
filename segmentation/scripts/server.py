@@ -2,15 +2,20 @@ import argparse
 import json
 import math
 import multiprocessing
+import os.path
+import shutil
+import tempfile
 import warnings
 
 import torch
 
+from segmentation.gui.xml_util import XMLGenerator
 from segmentation.postprocessing.baselines_util import make_baseline_continous
 from segmentation.postprocessing.data_classes import PredictionResult
 from segmentation.postprocessing.layout_settings import LayoutProcessingMethod
 from segmentation.predictors import PredictionSettings, Predictor
 from segmentation.preprocessing.source_image import SourceImage
+from segmentation.scripts.calamari_config import get_config
 from segmentation.scripts.layout import process_layout, LayoutProcessingSettings
 from flask import Flask, request
 
@@ -31,7 +36,7 @@ except:
     print("Cannot load model.")
     nn_predictor = None
 
-SERVER_LAYOUT_METHOD = LayoutProcessingMethod.FULL
+SERVER_LAYOUT_METHOD = LayoutProcessingMethod.ANALYSE_SCHNIPSCHNIP
 
 @app.route("/schnipschnip", methods=["POST"])
 def schnipschnip():
@@ -130,7 +135,8 @@ def marginalia_cut():
 
     analyzed_content = process_layout(prediction, img, multiprocessing.Pool(2), layout_settings)
     xml_gen = analyzed_content.export(img, image_path, simplified_xml=False)
-    return xml_gen.baselines_to_xml_string()
+    return run_ocr(image_path,xml_gen)
+    #return xml_gen.baselines_to_xml_string()
 
 
 @app.route("/oneclick", methods=["POST"])
@@ -150,12 +156,35 @@ def oneclick():
         analyzed_content = process_layout(prediction, scaled_image, multiprocessing.Pool(2), layout_settings)
         analyzed_content = analyzed_content.to_pagexml_space(prediction.prediction_scale_factor)
         xml_gen = analyzed_content.export(scaled_image, image_path, simplified_xml=False)
-    return xml_gen.baselines_to_xml_string()
+    return run_ocr(image_path, xml_gen)
+    #return xml_gen.baselines_to_xml_string()
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
 import sys
 
+def run_ocr(image_filename, xml_gen: XMLGenerator):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        try:
+            shutil.copy(image_filename, tmpdir)
+            bn = os.path.basename(image_filename)
+            bn = bn.replace(".png",".xml")
+            with open(os.path.join(tmpdir,bn),"w") as f:
+                f.write(xml_gen.baselines_to_xml_string())
+
+            config = get_config()
+            # run calamari
+            ret = os.system(f'''
+            . {config['venv']} && export PYTHONPATH="{config["pythonpath"]}" && \
+            python -m calamari_ocr.scripts.predict --checkpoint {config["model"]} --dataset PAGEXML --files {os.path.join(tmpdir,os.path.basename(image_filename))}
+            ''') #TODO: this is a security hazard
+            logger.info(ret)
+
+            with open(os.path.join(tmpdir,bn.replace(".xml",".pred.xml"))) as f:
+                return f.read()
+        except Exception as e:
+            raise e
+            return ""
 
 def main():
     parser = argparse.ArgumentParser()
