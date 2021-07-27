@@ -23,8 +23,8 @@ from segmentation.util import PerformanceCounter, logger
 
 app = Flask("segmentation server")
 try:
-    settings = PredictionSettings(["/opt/segmentation-models/model136.torch"], 1000000, None, None)
-    #settings = PredictionSettings(["/home/norbert/share/BaselineModEval/mod/model_136.torch"], 1000000, None, None)
+    #settings = PredictionSettings(["/opt/segmentation-models/model136.torch"], 1000000, None, None)
+    settings = PredictionSettings(["/home/norbert/share/BaselineModEval/mod/model_136.torch"], 1000000, None, None)
 
     if not torch.cuda.is_available():
         torch.set_num_threads(multiprocessing.cpu_count())
@@ -45,7 +45,7 @@ def schnipschnip():
     baselines = data["baselines"]
     baselines = [bl["points"] for bl in baselines]
     baselines = [[(round(p["x"]), round(p["y"])) for p in bl] for bl in baselines]
-
+    logger.info(f"{data}\n")
 
     img = SourceImage.load(image_path)
 
@@ -55,7 +55,8 @@ def schnipschnip():
 
     analyzed_content = process_layout(prediction, img, multiprocessing.Pool(2), layout_settings)
     xml_gen = analyzed_content.export(img, image_path, simplified_xml=False)
-    return xml_gen.baselines_to_xml_string()
+    return run_ocr(image_path,xml_gen)
+    #return xml_gen.baselines_to_xml_string()
 
 class LineSegment:
 
@@ -131,7 +132,7 @@ def marginalia_cut():
     prediction = PredictionResult(baselines=cut_baselines, prediction_shape=list(img.array().shape))
     layout_settings = LayoutProcessingSettings(marginalia_postprocessing=False,
                                                source_scale=True,
-                                               layout_method=SERVER_LAYOUT_METHOD)
+                                               layout_method=LayoutProcessingMethod.FULL)
 
     analyzed_content = process_layout(prediction, img, multiprocessing.Pool(2), layout_settings)
     xml_gen = analyzed_content.export(img, image_path, simplified_xml=False)
@@ -183,8 +184,8 @@ def run_ocr(image_filename, xml_gen: XMLGenerator):
             with open(os.path.join(tmpdir,bn.replace(".xml",".pred.xml"))) as f:
                 return f.read()
         except Exception as e:
-            raise e
-            return ""
+            #raise e
+            return xml_gen.baselines_to_xml_string()
 
 def main():
     parser = argparse.ArgumentParser()

@@ -53,7 +53,8 @@ class SourceImage:
 
     def array(self):
         if self.array_cache is None:
-            self.array_cache = np.array(self.pil_image, dtype=np.uint8)
+            print(self.pil_image)
+            self.array_cache = np.array(self.pil_image).astype(np.uint8)
         return self.array_cache
 
     def is_rescaled(self):
