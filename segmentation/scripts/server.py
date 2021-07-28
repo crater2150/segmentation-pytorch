@@ -5,7 +5,9 @@ import multiprocessing
 import os.path
 import shutil
 import tempfile
+import time
 import warnings
+from pathlib import Path
 
 import torch
 
@@ -23,8 +25,8 @@ from segmentation.util import PerformanceCounter, logger
 
 app = Flask("segmentation server")
 try:
-    settings = PredictionSettings(["/opt/segmentation-models/model136.torch"], 1000000, None, None)
-    #settings = PredictionSettings(["/home/norbert/share/BaselineModEval/mod/model_136.torch"], 1000000, None, None)
+    #settings = PredictionSettings(["/opt/segmentation-models/model136.torch"], 1000000, None, None)
+    settings = PredictionSettings(["/home/norbert/share/BaselineModEval/mod/model_136.torch"], 1000000, None, None)
 
     if not torch.cuda.is_available():
         torch.set_num_threads(multiprocessing.cpu_count())
@@ -135,7 +137,7 @@ def marginalia_cut():
 
     analyzed_content = process_layout(prediction, img, multiprocessing.Pool(2), layout_settings)
     xml_gen = analyzed_content.export(img, image_path, simplified_xml=False)
-    return run_ocr(image_path,xml_gen)
+    return run_ocr(image_path,xml_gen.baselines_to_xml_string())
     #return xml_gen.baselines_to_xml_string()
 
 
@@ -155,36 +157,52 @@ def oneclick():
 
         analyzed_content = process_layout(prediction, scaled_image, multiprocessing.Pool(2), layout_settings)
         analyzed_content = analyzed_content.to_pagexml_space(prediction.prediction_scale_factor)
-        xml_gen = analyzed_content.export(scaled_image, image_path, simplified_xml=False)
-    return run_ocr(image_path, xml_gen)
+        xml_gen = analyzed_content.export(img, image_path, simplified_xml=False)
+
+    return run_ocr(image_path, xml_gen.baselines_to_xml_string())
     #return xml_gen.baselines_to_xml_string()
+
+@app.route("/justocr", methods=["POST"])
+def justocr():
+    data = request.get_json()
+    return run_ocr(data["image_path"],data["pagexml"])
+
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
 import sys
 
-def run_ocr(image_filename, xml_gen: XMLGenerator):
+def run_ocr(image_filename, page_xml_string: str):
+    logger.info(page_xml_string)
     with tempfile.TemporaryDirectory() as tmpdir:
         try:
-            shutil.copy(image_filename, tmpdir)
-            bn = os.path.basename(image_filename)
-            bn = bn.replace(".png",".xml")
-            with open(os.path.join(tmpdir,bn),"w") as f:
-                f.write(xml_gen.baselines_to_xml_string())
+            new_img_fname = (Path(tmpdir) / Path(image_filename).stem.split(".")[0]).with_suffix(Path(image_filename).suffix)
+            new_xml_fname = new_img_fname.with_suffix(".xml")
+            shutil.copy(image_filename, new_img_fname)
+
+            with open(new_xml_fname,"w") as f:
+                f.write(page_xml_string)
 
             config = get_config()
             # run calamari
-            ret = os.system(f'''
-            . {config['venv']} && export PYTHONPATH="{config["pythonpath"]}" && \
-            python -m calamari_ocr.scripts.predict --checkpoint {config["model"]} --dataset PAGEXML --files {os.path.join(tmpdir,os.path.basename(image_filename))}
-            ''') #TODO: this is a security hazard
-            logger.info(ret)
+            system_command = f'''
+            . {config['venv']} && export PYTHONPATH="{config["pythonpath"]}" \
+            && export CUDA_VISIBLE_DEVICES="" \
+            && {config["env"] + " &&" if "env" in config else ""} \
+            python -m calamari_ocr.scripts.predict --checkpoint {config["model"]} --dataset PAGEXML --files "{new_img_fname}" --output_dir "{tmpdir}" \
+            '''
+            logger.info("Running Command:")
+            logger.info(system_command)
+            ret = os.system(system_command) #TODO: this is a security hazard
 
-            with open(os.path.join(tmpdir,bn.replace(".xml",".pred.xml"))) as f:
-                return f.read()
+            logger.info(f"Calamari returned exit code: {ret}")
+            with open(new_xml_fname.with_suffix(".pred.xml")) as f:
+                new_pagexml = f.read()
+                logger.info(new_pagexml)
+                return new_pagexml
         except Exception as e:
             raise e
-            return ""
+            #return page_xml_string
 
 def main():
     parser = argparse.ArgumentParser()
