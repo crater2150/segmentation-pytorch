@@ -5,9 +5,7 @@ import multiprocessing
 import os.path
 import shutil
 import tempfile
-import time
 import warnings
-from pathlib import Path
 
 import torch
 
@@ -25,8 +23,8 @@ from segmentation.util import PerformanceCounter, logger
 
 app = Flask("segmentation server")
 try:
-    #settings = PredictionSettings(["/opt/segmentation-models/model136.torch"], 1000000, None, None)
-    settings = PredictionSettings(["/home/norbert/share/BaselineModEval/mod/model_136.torch"], 1000000, None, None)
+    settings = PredictionSettings(["/opt/segmentation-models/model136.torch"], 1000000, None, None)
+    #settings = PredictionSettings(["/home/norbert/share/BaselineModEval/mod/model_136.torch"], 1000000, None, None)
 
     if not torch.cuda.is_available():
         torch.set_num_threads(multiprocessing.cpu_count())
@@ -47,7 +45,7 @@ def schnipschnip():
     baselines = data["baselines"]
     baselines = [bl["points"] for bl in baselines]
     baselines = [[(round(p["x"]), round(p["y"])) for p in bl] for bl in baselines]
-
+    logger.info(f"{data}\n")
 
     img = SourceImage.load(image_path)
 
