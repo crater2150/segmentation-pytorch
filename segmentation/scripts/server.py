@@ -18,13 +18,15 @@ from segmentation.preprocessing.source_image import SourceImage
 from segmentation.scripts.calamari_config import get_config
 from segmentation.scripts.layout import process_layout, LayoutProcessingSettings
 from flask import Flask, request
-
+from pathlib import Path
 from segmentation.util import PerformanceCounter, logger
+from PIL import Image
+import numpy as np
 
 app = Flask("segmentation server")
 try:
-    settings = PredictionSettings(["/opt/segmentation-models/model136.torch"], 1000000, None, None)
-    #settings = PredictionSettings(["/home/norbert/share/BaselineModEval/mod/model_136.torch"], 1000000, None, None)
+    #settings = PredictionSettings(["/opt/segmentation-models/model136.torch"], 1000000, None, None)
+    settings = PredictionSettings(["/home/norbert/share/BaselineModEval/mod/model_136.torch"], 1000000, None, None)
 
     if not torch.cuda.is_available():
         torch.set_num_threads(multiprocessing.cpu_count())
@@ -172,16 +174,25 @@ import sys
 
 def run_ocr(image_filename, page_xml_string: str):
     logger.info(page_xml_string)
+    config = get_config()
     with tempfile.TemporaryDirectory() as tmpdir:
         try:
-            new_img_fname = (Path(tmpdir) / Path(image_filename).stem.split(".")[0]).with_suffix(Path(image_filename).suffix)
-            new_xml_fname = new_img_fname.with_suffix(".xml")
-            shutil.copy(image_filename, new_img_fname)
 
+            if config["ocr_binarize"]:
+                logger.info("Binarizing Image for OCR")
+                new_img_fname = (Path(tmpdir) / Path(image_filename).stem.split(".")[0]).with_suffix(".png")
+                img = SourceImage.load(image_filename)
+                bin = (img.binarized() + 0.5).astype(np.uint8) * np.uint8(255)
+                Image.fromarray(bin).save(new_img_fname)
+            else:
+                new_img_fname = (Path(tmpdir) / Path(image_filename).stem.split(".")[0]).with_suffix(Path(image_filename).suffix)
+                shutil.copy(image_filename, new_img_fname)
+
+            new_xml_fname = new_img_fname.with_suffix(".xml")
             with open(new_xml_fname,"w") as f:
                 f.write(page_xml_string)
 
-            config = get_config()
+
             # run calamari
             system_command = f'''
             . {config['venv']} && export PYTHONPATH="{config["pythonpath"]}" \
