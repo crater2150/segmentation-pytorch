@@ -84,8 +84,9 @@ class AnalyzedContent:
 
         return AnalyzedContent(baselines, lp, bbx, regions=reg)
 
-    def export(self, source_image, source_filename, simplified_xml=False) -> XMLGenerator:
+    def export(self, source_image: SourceImage, source_filename, simplified_xml=False) -> XMLGenerator:
         regions = []
+        img_w, img_h = source_image.get_width(), source_image.get_height()
         if self.regions is not None:
             for ib, reg in enumerate(self.regions):
                 text_lines = []
@@ -109,15 +110,14 @@ class AnalyzedContent:
             text_lines = []
             for bl, text_region_coord in zip(self.baselines, self.lines_polygons):
                 text_lines.append(TextLine(coords=text_region_coord, baseline=BaseLine(bl)))
-            w, h = source_image.array().shape[1], source_image.array().shape[0]
-            regions.append(TextRegion(text_lines, coords=[(0, 0), (w, 0), (w, h), (0, h)]))
+            regions.append(TextRegion(text_lines, coords=[(0, 0), (img_w, 0), (img_w, img_h), (0, img_h)]))
         elif self.lines_polygons is not None and not simplified_xml:
             # no layout segmentation is done, create text regions for each baseline
             for bl, text_region_coord in zip(self.baselines, self.lines_polygons):
                 tl = TextLine(coords=text_region_coord, baseline=BaseLine(bl))
                 regions.append(TextRegion([tl], coords=text_region_coord))
 
-        xml_gen = XMLGenerator(source_image.pil_image.size[0], source_image.pil_image.size[1],
+        xml_gen = XMLGenerator(img_w, img_h,
                                os.path.basename(source_filename), regions=regions)
         return xml_gen
 

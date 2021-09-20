@@ -25,7 +25,7 @@ class SourceImage:
         self.scale_factor = scale_factor
 
     def scaled(self, scale_factor) -> 'SourceImage':
-        return SourceImage(rescale_pil(self.pil_image, scale_factor), scale_factor=scale_factor)
+        return SourceImage(rescale_pil(self.pil_image.copy(), scale_factor), scale_factor=scale_factor)
 
     def scale_area(self, max_area, additional_scale_factor=None) -> 'SourceImage':
 
