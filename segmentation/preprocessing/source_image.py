@@ -53,7 +53,6 @@ class SourceImage:
 
     def array(self):
         if self.array_cache is None:
-            print(self.pil_image)
             self.array_cache = np.array(self.pil_image).astype(np.uint8)
         return self.array_cache
 
