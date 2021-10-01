@@ -4,10 +4,12 @@ import math
 import multiprocessing
 import os.path
 import shutil
+import sys
 import tempfile
 import warnings
 
 import torch
+from flask import Flask, request
 
 from segmentation.gui.xml_util import XMLGenerator
 from segmentation.postprocessing.baselines_util import make_baseline_continous
@@ -17,8 +19,6 @@ from segmentation.predictors import PredictionSettings, Predictor
 from segmentation.preprocessing.source_image import SourceImage
 from segmentation.scripts.calamari_config import get_config
 from segmentation.scripts.layout import process_layout, LayoutProcessingSettings
-from flask import Flask, request
-
 from segmentation.util import PerformanceCounter, logger
 
 app = Flask("segmentation server")
@@ -162,9 +162,8 @@ def oneclick():
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
-import sys
 
-def run_ocr(image_filename, xml_gen: XMLGenerator):
+def run_ocr_old(image_filename, xml_gen: XMLGenerator):
     with tempfile.TemporaryDirectory() as tmpdir:
         try:
             shutil.copy(image_filename, tmpdir)
@@ -178,7 +177,7 @@ def run_ocr(image_filename, xml_gen: XMLGenerator):
             ret = os.system(f'''
             . {config['venv']} && export PYTHONPATH="{config["pythonpath"]}" && \
             python -m calamari_ocr.scripts.predict --checkpoint {config["model"]} --dataset PAGEXML --files {os.path.join(tmpdir,os.path.basename(image_filename))}
-            ''') #TODO: this is a security hazard
+            ''')  # TODO: this is a security hazard
             logger.info(ret)
 
             with open(os.path.join(tmpdir,bn.replace(".xml",".pred.xml"))) as f:
@@ -186,6 +185,17 @@ def run_ocr(image_filename, xml_gen: XMLGenerator):
         except Exception as e:
             #raise e
             return xml_gen.baselines_to_xml_string()
+def run_ocr_new(image_filename, xml_gen: XMLGenerator):
+    pass
+
+def run_ocr(image_filename, xml_gen: XMLGenerator):
+    config = get_config()
+    if config["calamari_version"] == "old":
+        return run_ocr_old(image_filename, xml_gen)
+    elif config["calamari_version"] == "new":
+        return run_ocr_new(image_filename, xml_gen)
+    else:
+        raise KeyError("Invalid Calamari version specified")
 
 def main():
     parser = argparse.ArgumentParser()
