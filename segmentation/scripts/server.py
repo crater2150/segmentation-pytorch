@@ -181,7 +181,7 @@ def run_ocr_old(orig_img_path, page_xml_string: str):
     with tempfile.TemporaryDirectory() as tmpdir:
         if config["ocr_binarize"]:
             logger.info("Binarizing Image for OCR")
-            img_file = Path(tmpdir) / "image.png"
+            img_file = Path(tmpdir) / Path(orig_img_path).with_suffix(".png").name
             img = SourceImage.load(orig_img_path)
             binarized_arr = (img.binarized() + 0.5).astype(np.uint8) * np.uint8(255)
             Image.fromarray(binarized_arr).save(str(img_file))
