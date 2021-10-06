@@ -164,7 +164,7 @@ def main():
     else:  # two step prediction
         predictions = []
         with multiprocessing.Pool() as pool:
-            for file in files:
+            for file in tqdm(files,desc="Prediction"):
                 logger.info("Processing: {} \n".format(file))
                 source_image = SourceImage.load(file)
 
@@ -177,7 +177,7 @@ def main():
 
             data = [(args, pred, file) for pred, file in zip(predictions, files)]
 
-            for _ in tqdm(pool.imap_unordered(two_step_file_func,data), total=len(files)):
+            for _ in tqdm(pool.imap_unordered(two_step_file_func,data), total=len(files),desc="Layout"):
                 pass
 
 

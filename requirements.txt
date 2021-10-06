@@ -6,10 +6,10 @@ pillow
 numpy
 ttach
 setuptools~=41.6.0
-matplotlib~=3.1.1
+matplotlib
 pandas
 seaborn~=0.9.0
-tqdm~=4.38.0
+tqdm
 albumentations~=0.4.2
 scikit-image
 opencv-python

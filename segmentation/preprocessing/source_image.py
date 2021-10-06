@@ -25,7 +25,7 @@ class SourceImage:
         self.scale_factor = scale_factor
 
     def scaled(self, scale_factor) -> 'SourceImage':
-        return SourceImage(rescale_pil(self.pil_image, scale_factor), scale_factor=scale_factor)
+        return SourceImage(rescale_pil(self.pil_image.copy(), scale_factor), scale_factor=scale_factor)
 
     def scale_area(self, max_area, additional_scale_factor=None) -> 'SourceImage':
 
@@ -53,7 +53,6 @@ class SourceImage:
 
     def array(self):
         if self.array_cache is None:
-            print(self.pil_image)
             self.array_cache = np.array(self.pil_image).astype(np.uint8)
         return self.array_cache
 
@@ -62,6 +61,12 @@ class SourceImage:
 
     def get_width(self):
         return int(self.array().shape[1])
+
+    def get_unscaled_width(self):
+        return round(self.get_width() / self.scale_factor)
+
+    def get_unscaled_height(self):
+        return round(self.get_height() / self.scale_factor)
 
     def get_height(self):
         return int(self.array().shape[0])

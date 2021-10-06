@@ -21,6 +21,8 @@ from segmentation.preprocessing.source_image import SourceImage
 from segmentation.scripts.calamari_config import get_config
 from segmentation.scripts.layout import process_layout, LayoutProcessingSettings
 from segmentation.util import PerformanceCounter, logger
+from PIL import Image
+import numpy as np
 
 app = Flask("segmentation server")
 try:
@@ -133,7 +135,7 @@ def marginalia_cut():
     prediction = PredictionResult(baselines=cut_baselines, prediction_shape=list(img.array().shape))
     layout_settings = LayoutProcessingSettings(marginalia_postprocessing=False,
                                                source_scale=True,
-                                               layout_method=LayoutProcessingMethod.FULL)
+                                               layout_method=SERVER_LAYOUT_METHOD)
 
     analyzed_content = process_layout(prediction, img, multiprocessing.Pool(2), layout_settings)
     xml_gen = analyzed_content.export(img, image_path, simplified_xml=False)
@@ -158,50 +160,68 @@ def oneclick():
         analyzed_content = process_layout(prediction, scaled_image, multiprocessing.Pool(2), layout_settings)
         analyzed_content = analyzed_content.to_pagexml_space(prediction.prediction_scale_factor)
         xml_gen = analyzed_content.export(scaled_image, image_path, simplified_xml=False)
-    return run_ocr(image_path, xml_gen)
+    return run_ocr(image_path, xml_gen.baselines_to_xml_string())
     #return xml_gen.baselines_to_xml_string()
-
 
 @app.route("/justocr", methods=["POST"])
 def justocr():
     data = request.get_json()
     logger.info(f"JustOCR for {data}")
-    return ""
+    return run_ocr(data["image_path"],data["pagexml"])
+
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
+import sys
 
-def run_ocr_old(image_filename, xml_gen: XMLGenerator):
+def run_ocr_old(orig_img_path, page_xml_string: str):
+    logger.info(page_xml_string)
+    config = get_config()
+
     with tempfile.TemporaryDirectory() as tmpdir:
-        try:
-            shutil.copy(image_filename, tmpdir)
-            img_path = Path(tmpdir) / Path(image_filename).name
-            xml_path = img_path.with_suffix(".xml")
-            with open(xml_path,"w") as f:
-                f.write(xml_gen.baselines_to_xml_string())
+        if config["ocr_binarize"]:
+            logger.info("Binarizing Image for OCR")
+            img_file = Path(tmpdir) / "image.png"
+            img = SourceImage.load(orig_img_path)
+            binarized_arr = (img.binarized() + 0.5).astype(np.uint8) * np.uint8(255)
+            Image.fromarray(binarized_arr).save(str(img_file))
+        else:
+            img_file = (Path(tmpdir) / Path(orig_img_path).name)
+            shutil.copy(orig_img_path, img_file)
 
+        xml_file = img_file.with_suffix(".xml")
+        with open(xml_file,"w") as f:
+            f.write(page_xml_string)
+
+        try:
             config = get_config()
             # run calamari
             ret = os.system(f'''
-            . {config['venv']} && export PYTHONPATH="{config["pythonpath"]}" && \
-            python -m calamari_ocr.scripts.predict --checkpoint {config["model"]} --dataset PAGEXML --files "{img_path}"
+            . {config['venv']} && export PYTHONPATH="{config["pythonpath"]}" \
+            && export CUDA_VISIBLE_DEVICES="" \
+            && python -m calamari_ocr.scripts.predict --checkpoint {config["model"]} --dataset PAGEXML --files "{img_file}"
             ''')  # TODO: this is a security hazard
             logger.info(ret)
 
-            with open(xml_path.with_suffix(".pred.xml")) as f:
-                return f.read()
+            with open(xml_file.with_suffix(".pred.xml")) as f:
+                ocr_pxml_string = f.read()
+                # TODO: replace the image filename with
+
+                return ocr_pxml_string
         except Exception as e:
-            #raise e
-            return xml_gen.baselines_to_xml_string()
+            logger.error("Error running OCR")
+            logger.error(e)
+            return page_xml_string
+
 def run_ocr_new(image_filename, xml_gen: XMLGenerator):
     pass
 
-def run_ocr(image_filename, xml_gen: XMLGenerator):
+def run_ocr(image_filename, page_xml_string: str):
     config = get_config()
     if config["calamari_version"] == "old":
-        return run_ocr_old(image_filename, xml_gen)
+        return run_ocr_old(image_filename, page_xml_string)
     elif config["calamari_version"] == "new":
-        return run_ocr_new(image_filename, xml_gen)
+        return run_ocr_new(image_filename, page_xml_string)
     else:
         raise KeyError("Invalid Calamari version specified")
 
