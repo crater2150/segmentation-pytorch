@@ -7,6 +7,7 @@ import shutil
 import sys
 import tempfile
 import warnings
+from pathlib import Path
 
 import torch
 from flask import Flask, request
@@ -160,6 +161,13 @@ def oneclick():
     return run_ocr(image_path, xml_gen)
     #return xml_gen.baselines_to_xml_string()
 
+
+@app.route("/justocr", methods=["POST"])
+def justocr():
+    data = request.get_json()
+    logger.info(f"JustOCR for {data}")
+    return ""
+
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
 
@@ -167,20 +175,20 @@ def run_ocr_old(image_filename, xml_gen: XMLGenerator):
     with tempfile.TemporaryDirectory() as tmpdir:
         try:
             shutil.copy(image_filename, tmpdir)
-            bn = os.path.basename(image_filename)
-            bn = bn.replace(".png",".xml")
-            with open(os.path.join(tmpdir,bn),"w") as f:
+            img_path = Path(tmpdir) / Path(image_filename).name
+            xml_path = img_path.with_suffix(".xml")
+            with open(xml_path,"w") as f:
                 f.write(xml_gen.baselines_to_xml_string())
 
             config = get_config()
             # run calamari
             ret = os.system(f'''
             . {config['venv']} && export PYTHONPATH="{config["pythonpath"]}" && \
-            python -m calamari_ocr.scripts.predict --checkpoint {config["model"]} --dataset PAGEXML --files {os.path.join(tmpdir,os.path.basename(image_filename))}
+            python -m calamari_ocr.scripts.predict --checkpoint {config["model"]} --dataset PAGEXML --files "{img_path}"
             ''')  # TODO: this is a security hazard
             logger.info(ret)
 
-            with open(os.path.join(tmpdir,bn.replace(".xml",".pred.xml"))) as f:
+            with open(xml_path.with_suffix(".pred.xml")) as f:
                 return f.read()
         except Exception as e:
             #raise e
