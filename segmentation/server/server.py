@@ -4,7 +4,6 @@ import math
 import multiprocessing
 import os.path
 import shutil
-import sys
 import tempfile
 import warnings
 from pathlib import Path
@@ -18,7 +17,7 @@ from segmentation.postprocessing.data_classes import PredictionResult
 from segmentation.postprocessing.layout_settings import LayoutProcessingMethod
 from segmentation.predictors import PredictionSettings, Predictor
 from segmentation.preprocessing.source_image import SourceImage
-from segmentation.scripts.calamari_config import get_config
+from segmentation.server.calamari_config import get_config
 from segmentation.scripts.layout import process_layout, LayoutProcessingSettings
 from segmentation.util import PerformanceCounter, logger
 from PIL import Image
@@ -167,7 +166,7 @@ def oneclick():
 def justocr():
     data = request.get_json()
     logger.info(f"JustOCR for {data}")
-    return run_ocr(data["image_path"],data["pagexml"])
+    return run_ocr(data["image_path"], data["pagexml"])
 
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
