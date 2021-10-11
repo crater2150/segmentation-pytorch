@@ -3,6 +3,7 @@ import glob
 import multiprocessing
 import os
 import warnings
+from pathlib import Path
 
 import torch
 
@@ -66,6 +67,22 @@ def parse_args():
     return parser.parse_args()
 
 
+def produce_output(source_image: SourceImage, args, file, analyzed_content):
+    xml_gen = analyzed_content.export(source_image, file, simplified_xml=args.simplified_xml)
+
+    if args.print_xml:
+        print(xml_gen.baselines_to_xml_string())
+    if args.output_xml:
+        if not args.output_xml_path :
+            parent = Path(file).parent
+            if parent.is_dir():
+                xml_gen.save_textregions_as_xml(parent)
+                logger.info(f"Written xml for file {Path(file).stem} to directory {parent}\n")
+            else:
+                logger.error(f"Cannot save file {Path(file).stem} to directory {parent}\n")
+        else:
+            xml_gen.save_textregions_as_xml(args.output_xml_path)
+
 def two_step_file_func(data):
     args, prediction, file = data
     source_image = SourceImage.load(file)
@@ -92,12 +109,7 @@ def two_step_file_func(data):
 
     layout_debugging(args, analyzed_content, source_image, file)
 
-    if args.print_xml or (args.output_xml is not None and args.output_xml_path is not None):
-        xml_gen = analyzed_content.export(source_image, file, simplified_xml=args.simplified_xml)
-        if args.print_xml:
-            print(xml_gen.baselines_to_xml_string())
-        else:
-            xml_gen.save_textregions_as_xml(args.output_xml_path)
+    produce_output(source_image=source_image, args=args, file=file, analyzed_content=analyzed_content)
 
 
 def main():
@@ -108,7 +120,10 @@ def main():
 
         logger.warn(f"Using glob filenames: {args.image_path}.")
         logger.warn("Glob might silently skip unreadable or unaccessable files.")
-        files = sorted(itertools.chain.from_iterable([glob.glob(x) for x in args.image_path]))
+        files = sorted(itertools.chain.from_iterable([glob.glob(x,recursive=True) for x in args.image_path]))
+        logger.debug("Globbed files:\n")
+        for x in files:
+            logger.debug(f" > {x}\n")
     else:
         files = args.files
     settings = PredictionSettings(args.load, args.scale_area, args.min_line_height, args.max_line_height)
@@ -155,12 +170,7 @@ def main():
 
                 layout_debugging(args, analyzed_content, source_image, file)
 
-                if args.print_xml or (args.output_xml is not None and args.output_xml_path is not None):
-                    xml_gen = analyzed_content.export(source_image, file, simplified_xml=args.simplified_xml)
-                    if args.print_xml:
-                        print(xml_gen.baselines_to_xml_string())
-                    else:
-                        xml_gen.save_textregions_as_xml(args.output_xml_path)
+                produce_output(source_image= source_image, args=args, file=file, analyzed_content=analyzed_content)
     else:  # two step prediction
         predictions = []
         with multiprocessing.Pool() as pool:
