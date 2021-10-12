@@ -243,6 +243,6 @@ def main():
 
 
 if __name__ == "__main__":
-    app.run(port="17654",threaded=False) # you cannot use threaded flask or multiple processes, because the model needs to be loaded
+    app.run(port="17654",threaded=False)  # you cannot use threaded flask or multiple processes, because the model needs to be loaded
 
 

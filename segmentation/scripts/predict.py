@@ -2,6 +2,7 @@ import argparse
 import glob
 import multiprocessing
 import os
+import sys
 import warnings
 from pathlib import Path
 
@@ -84,32 +85,37 @@ def produce_output(source_image: SourceImage, args, file, analyzed_content):
             xml_gen.save_textregions_as_xml(args.output_xml_path)
 
 def two_step_file_func(data):
-    args, prediction, file = data
-    source_image = SourceImage.load(file)
-    #imageio.imwrite(f"/tmp/ol2pad/img/{os.path.basename(file)}", source_image.array()) # todo remove
-    scaled_image = source_image.scaled(prediction.prediction_scale_factor)
+    try:
+        args, prediction, file = data
+        source_image = SourceImage.load(file)
+        #imageio.imwrite(f"/tmp/ol2pad/img/{os.path.basename(file)}", source_image.array()) # todo remove
+        scaled_image = source_image.scaled(prediction.prediction_scale_factor)
 
-    if args.export_path:
-        bname_json = os.path.splitext(os.path.basename(file))[0] + ".blp.json"
-        with open(os.path.join(args.export_path, bname_json), "w") as f:
-            f.write(prediction.to_json())
+        if args.export_path:
+            bname_json = os.path.splitext(os.path.basename(file))[0] + ".blp.json"
+            with open(os.path.join(args.export_path, bname_json), "w") as f:
+                f.write(prediction.to_json())
 
-    scale_factor = prediction.prediction_scale_factor
+        scale_factor = prediction.prediction_scale_factor
 
-    layout_settings = LayoutProcessingSettings.from_cmdline_args(args)
+        layout_settings = LayoutProcessingSettings.from_cmdline_args(args)
 
-    analyzed_content = process_layout(prediction, scaled_image, None, layout_settings)
+        analyzed_content = process_layout(prediction, scaled_image, None, layout_settings)
 
-    # layout_debugging(args, analyzed_content, scaled_image, file)
+        # layout_debugging(args, analyzed_content, scaled_image, file)
 
-    # convert this back to the original image space
-    analyzed_content = analyzed_content.to_pagexml_space(scale_factor)
+        # convert this back to the original image space
+        analyzed_content = analyzed_content.to_pagexml_space(scale_factor)
 
-    # debugging
+        # debugging
 
-    layout_debugging(args, analyzed_content, source_image, file)
+        layout_debugging(args, analyzed_content, source_image, file)
 
-    produce_output(source_image=source_image, args=args, file=file, analyzed_content=analyzed_content)
+        produce_output(source_image=source_image, args=args, file=file, analyzed_content=analyzed_content)
+        return True, None
+    except Exception as e:
+        logger.error(str(e) + "\n")
+        return False, e
 
 
 def main():
@@ -187,8 +193,17 @@ def main():
 
             data = [(args, pred, file) for pred, file in zip(predictions, files)]
 
-            for _ in tqdm(pool.imap_unordered(two_step_file_func,data), total=len(files),desc="Layout"):
-                pass
+            retvals = []
+            for rv, ec in tqdm(pool.imap_unordered(two_step_file_func,data), total=len(files),desc="Layout"):
+                retvals.append(rv)
+
+            if not all(retvals):
+                logger.error("Not all jobs ran successfully \n")
+                logger.error(f"{len(retvals) - sum(retvals)} out of {len(retvals)} jobs failed. \n")
+            else:
+                logger.info("Everything ran successfully\n")
+
+            sys.exit(0 if all(retvals) else 1)
 
 
 if __name__ == "__main__":
