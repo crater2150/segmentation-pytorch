@@ -61,7 +61,9 @@ class Predictor:
         self.ensemble = Ensemble(self.networks)
 
     def predict_image(self, source_image: SourceImage,
-                      process_pool: multiprocessing.Pool = multiprocessing.Pool(1)) -> (PredictionResult, SourceImage):
+                      process_pool: multiprocessing.Pool = None) -> (PredictionResult, SourceImage):
+        if process_pool is None:
+            process_pool = multiprocessing.pool.ThreadPool(1)
         scale_factor_multiplier = 1
         while True:
             scaled_image = source_image.scale_area(self.settings.scale_area, scale_factor_multiplier)
@@ -104,7 +106,9 @@ class BigTextDetector:
         line_strings = [LineString(bl if len(bl) > 1 else bl * 2) for bl in baselines]
         return [ls.buffer(slack_radius) for ls in line_strings]
 
-    def predict_padded(self, img: SourceImage, factor: float = 0.5, process_pool: multiprocessing.Pool = multiprocessing.Pool()) -> Tuple[PredictionResult, SourceImage]:
+    def predict_padded(self, img: SourceImage, factor: float = 0.5, process_pool: multiprocessing.Pool = None) -> Tuple[PredictionResult, SourceImage]:
+        if process_pool is None:
+            process_pool = multiprocessing.pool.ThreadPool(1)
         # pad the image by 50%
         pad_img = img.pad(factor)
         pred_pad, scaled_padded_img = self.predictor.predict_image(pad_img, process_pool)
