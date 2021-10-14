@@ -187,8 +187,10 @@ def run_ocr_old(orig_img_path, page_xml_string: str):
         else:
             img_file = (Path(tmpdir) / Path(orig_img_path).name)
             shutil.copy(orig_img_path, img_file)
-
-        xml_file = img_file.with_suffix(".xml")
+        xml_file = img_file
+        while len(xml_file.suffixes) > 1:
+            xml_file = xml_file.with_suffix("")
+        xml_file = xml_file.with_suffix(".xml")
         with open(xml_file,"w") as f:
             f.write(page_xml_string)
 
